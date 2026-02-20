@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Server, Database, LoadBalancer, Cloud } from "lucide-react"
+import { Server, Database, Network, Cloud } from "lucide-react"
 
 interface Node {
   id: string
@@ -48,7 +48,7 @@ const defaultConnections: Connection[] = [
 const iconMap = {
   server: Server,
   database: Database,
-  loadbalancer: LoadBalancer,
+  loadbalancer: Network,
   cache: Database,
   queue: Cloud,
 }
