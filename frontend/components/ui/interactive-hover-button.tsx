@@ -31,7 +31,7 @@ const InteractiveHoverButton = React.forwardRef<
           isPrimary &&
             "border-cyan-500/20 bg-cyan-500/10 text-cyan-300 active:scale-[0.98]",
           !isPrimary &&
-            "border-white/[0.08] bg-white/[0.04] text-foreground/50 active:scale-[0.98]",
+            "border-violet-500/40 bg-violet-500/10 text-violet-300 active:scale-[0.98]",
           className
         )}
         {...props}
@@ -43,7 +43,7 @@ const InteractiveHoverButton = React.forwardRef<
         <div
           className={cn(
             "pointer-events-none absolute top-0 z-10 flex h-full w-full translate-x-12 items-center justify-center gap-2 opacity-0 transition-all duration-300 group-hover/btn:-translate-x-1 group-hover/btn:opacity-100",
-            isPrimary ? "text-cyan-300" : "text-foreground/80"
+            isPrimary ? "text-cyan-300" : "text-violet-300"
           )}
         >
           <span>{text}</span>
