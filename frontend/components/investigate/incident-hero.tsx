@@ -10,10 +10,24 @@ import {
   Clock,
   Tag,
   Zap,
+  Play,
 } from "lucide-react"
 
 export function IncidentHero() {
   const { startInvestigation } = useEngine()
+
+  const handleRealInvestigation = () => {
+    startInvestigation({
+      issueTitle: bugReport.title,
+      issueBody: bugReport.summary,
+      repoUrl: `https://github.com/${bugReport.repo}`,
+      repoName: bugReport.repo,
+    })
+  }
+
+  const handleDemoInvestigation = () => {
+    startInvestigation()
+  }
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
@@ -84,26 +98,38 @@ export function IncidentHero() {
                 AI SUMMARY
               </div>
               <p className="mt-2 text-sm leading-relaxed text-foreground/70">
-                Likely a race condition in the Stripe webhook handler. Webhook retries
-                are being processed as new events, creating duplicate charges. The issue
-                correlates with deploy v2.14.0 which modified the webhook processing
-                pipeline. Estimated 142 customers affected.
+                The process_refund function recalculates refund amounts using current
+                product prices instead of the price_at_purchase stored in order_items.
+                If prices changed since the order, customers get the wrong refund amount.
+                The code ignores order.total entirely despite the docstring specifying it.
               </p>
             </div>
 
             {/* CTA */}
             <div className="mt-6 flex gap-3">
               <button
-                onClick={startInvestigation}
+                onClick={handleRealInvestigation}
                 className={cn(
                   "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
-                  "bg-white/[0.07] text-foreground/90 border border-white/[0.12]",
-                  "transition-all hover:bg-white/[0.12] hover:border-white/[0.18]",
+                  "bg-cyan-500/10 text-cyan-300 border border-cyan-500/20",
+                  "transition-all hover:bg-cyan-500/20 hover:border-cyan-500/30",
                   "active:scale-[0.98]"
                 )}
               >
                 <Zap className="h-4 w-4 text-cyan-400" />
                 Launch Investigation
+              </button>
+              <button
+                onClick={handleDemoInvestigation}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
+                  "bg-white/[0.04] text-foreground/50 border border-white/[0.08]",
+                  "transition-all hover:bg-white/[0.08] hover:border-white/[0.12]",
+                  "active:scale-[0.98]"
+                )}
+              >
+                <Play className="h-4 w-4" />
+                Demo Mode
               </button>
             </div>
           </div>

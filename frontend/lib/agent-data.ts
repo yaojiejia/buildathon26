@@ -2,15 +2,15 @@ import { AgentEvent, AgentId, BugReport } from "./types"
 
 // ─── The bug we're investigating ─────────────────────────────
 export const bugReport: BugReport = {
-  id: "GH-2847",
-  title: "Duplicate charges appearing on customer invoices",
-  repo: "acme/payment-service",
-  author: "sarah-chen",
-  severity: "critical",
+  id: "GH-101",
+  title: "Refund uses current product price instead of price-at-purchase",
+  repo: "yaojiejia/buildathon_example",
+  author: "yaojiejia",
+  severity: "high",
   summary:
-    "Multiple customers reporting duplicate charges on their credit cards. Stripe dashboard shows two identical charge objects created within 200ms of each other. Affects roughly 3% of transactions since deploy v2.14.0 on Feb 18.",
-  labels: ["bug", "payments", "P0", "customer-impacting"],
-  createdAt: "2026-02-20T09:14:00Z",
+    "The process_refund function in services.py recalculates the refund amount by looking up each product's CURRENT price and multiplying by quantity. But the order stores price_at_purchase in order_items. If a product's price has changed since the order was placed, the refund amount will be wrong. The docstring says 'refund amount should be the TOTAL that the customer actually paid' (order.total), but the code ignores order.total entirely.",
+  labels: ["bug", "payments", "refund", "business-logic"],
+  createdAt: "2026-02-21T09:00:00Z",
 }
 
 let _id = 0
@@ -404,7 +404,10 @@ const result = await redis.set(key, "1", { NX: true, EX: 86400 });`,
 ]
 
 // ─── Export all events grouped by agent ──────────────────────
+export const triageEvents: AgentEvent[] = []
+
 export const allAgentEvents: Record<AgentId, AgentEvent[]> = {
+  triage: triageEvents,
   codebase_search: codebaseSearchEvents,
   docs: docsAgentEvents,
   logs: logsAgentEvents,
@@ -417,6 +420,12 @@ export const allAgentEvents: Record<AgentId, AgentEvent[]> = {
 
 // ─── Agent metadata ──────────────────────────────────────────
 export const agentMeta: Record<AgentId, { name: string; icon: string; color: string; description: string }> = {
+  triage: {
+    name: "Triage Agent",
+    icon: "Shield",
+    color: "text-purple-400",
+    description: "Classifies severity, identifies affected module, and detects duplicates",
+  },
   codebase_search: {
     name: "Codebase Search",
     icon: "Search",

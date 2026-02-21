@@ -13,6 +13,7 @@ import {
   Activity,
   Rabbit,
   MessageSquareReply,
+  Shield,
   Loader2,
   CheckCircle2,
   AlertTriangle,
@@ -29,6 +30,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Activity,
   Rabbit,
   MessageSquareReply,
+  Shield,
 }
 
 function StatusBadge({ status }: { status: AgentState["status"] }) {
@@ -144,10 +146,16 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
 
       {agent.status === "running" && (
         <div className={cn("h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]", isExpanded ? "mt-2.5" : "mt-2")}>
-          <div
-            className={cn("h-full rounded-full transition-all duration-500", meta.color.replace("text-", "bg-").replace("400", "400/60"))}
-            style={{ width: `${Math.min((eventCount / totalEvents) * 100, 95)}%` }}
-          />
+          {totalEvents > 0 ? (
+            <div
+              className={cn("h-full rounded-full transition-all duration-500", meta.color.replace("text-", "bg-").replace("400", "400/60"))}
+              style={{ width: `${Math.min((eventCount / totalEvents) * 100, 95)}%` }}
+            />
+          ) : (
+            <div
+              className={cn("h-full w-1/3 rounded-full animate-pulse", meta.color.replace("text-", "bg-").replace("400", "400/60"))}
+            />
+          )}
         </div>
       )}
       {agent.status === "done" && (

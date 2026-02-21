@@ -21,6 +21,7 @@ import {
   Activity,
   Rabbit,
   MessageSquareReply,
+  Shield,
   X,
 } from "lucide-react"
 
@@ -33,6 +34,7 @@ const agentIconMap: Record<string, React.ComponentType<{ className?: string }>> 
   Activity,
   Rabbit,
   MessageSquareReply,
+  Shield,
 }
 
 function EventIcon({ type }: { type: AgentEventType }) {

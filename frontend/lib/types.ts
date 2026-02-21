@@ -1,5 +1,6 @@
 // ─── Agent IDs (matches team tickets) ────────────────────────
 export type AgentId =
+  | "triage"            // Triage Agent — severity, module, duplicate detection
   | "codebase_search"   // TICKET-3.2 — Codebase Search Agent (RAG)
   | "docs"              // TICKET-3.3 — Docs Agent
   | "logs"              // TICKET-3.4 — Logs Agent
@@ -10,6 +11,7 @@ export type AgentId =
   | "review_response"   // TICKET-4.4 — Review Response Agent
 
 export const ALL_AGENT_IDS: AgentId[] = [
+  "triage",
   "codebase_search",
   "docs",
   "logs",
