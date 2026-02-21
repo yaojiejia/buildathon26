@@ -20,7 +20,7 @@ export function IncidentHero() {
       <div className="w-full max-w-2xl px-6">
         {/* Incident card */}
         <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
-          {/* Glow accent — cyan instead of red */}
+          {/* Glow accent */}
           <div className="absolute -top-24 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-cyan-500/8 blur-3xl" />
 
           <div className="relative p-8">

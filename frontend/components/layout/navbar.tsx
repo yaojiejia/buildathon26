@@ -1,6 +1,7 @@
 "use client"
 
 import { useEngine } from "@/lib/engine"
+import { useTheme } from "@/lib/theme"
 import { bugReport } from "@/lib/agent-data"
 import { cn } from "@/lib/utils"
 import {
@@ -8,10 +9,13 @@ import {
   RotateCcw,
   Github,
   Zap,
+  Sun,
+  Moon,
 } from "lucide-react"
 
 export function Navbar() {
   const { state, startInvestigation, resetInvestigation } = useEngine()
+  const { theme, toggleTheme } = useTheme()
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-black/40 px-5 backdrop-blur-sm">
@@ -92,6 +96,22 @@ export function Navbar() {
             Reset
           </button>
         )}
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08]",
+            "text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground/80"
+          )}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? (
+            <Sun className="h-3.5 w-3.5" />
+          ) : (
+            <Moon className="h-3.5 w-3.5" />
+          )}
+        </button>
       </div>
     </header>
   )

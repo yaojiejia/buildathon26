@@ -1,6 +1,7 @@
 "use client"
 
 import { EngineProvider, useEngine } from "@/lib/engine"
+import { ThemeProvider } from "@/lib/theme"
 import { Navbar } from "@/components/layout/navbar"
 import { InvestigatePage } from "@/components/investigate/investigate-page"
 import { IncidentHero } from "@/components/investigate/incident-hero"
@@ -28,8 +29,10 @@ function AppContent() {
 
 export default function Home() {
   return (
-    <EngineProvider>
-      <AppContent />
-    </EngineProvider>
+    <ThemeProvider>
+      <EngineProvider>
+        <AppContent />
+      </EngineProvider>
+    </ThemeProvider>
   )
 }
