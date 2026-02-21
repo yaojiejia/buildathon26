@@ -17,8 +17,8 @@ export function InvestigatePage() {
       {/* Agent panel — wide & centered by default, shrinks when thinking process is open */}
       <div
         className={cn(
-          "flex-shrink-0 border-r border-white/[0.06] bg-black/20 transition-all duration-400 ease-out overflow-hidden",
-          hasSelectedAgent ? "w-72" : "flex-1"
+          "flex-shrink-0 border-r border-white/[0.06] bg-black/20 transition-all duration-[750ms] ease-in-out overflow-hidden",
+          hasSelectedAgent ? "w-80" : "flex-1"
         )}
       >
         <AgentSidebar />
@@ -27,7 +27,7 @@ export function InvestigatePage() {
       {/* Thinking process column — slides in when agent is selected */}
       <div
         className={cn(
-          "overflow-hidden transition-all duration-400 ease-out",
+          "overflow-hidden transition-all duration-500 ease-in-out",
           hasSelectedAgent
             ? "flex-1 min-w-0 opacity-100"
             : "w-0 opacity-0"

@@ -174,11 +174,11 @@ export function AgentSidebar() {
       {/* Agent rows — centered when expanded */}
       <div className={cn(
         "flex-1 overflow-y-auto",
-        isExpanded ? "px-6 py-4" : "p-3"
+        isExpanded ? "px-8 py-5" : "p-3"
       )}>
         <div className={cn(
           "w-full mx-auto",
-          isExpanded ? "max-w-xl space-y-2.5" : "space-y-1.5"
+          isExpanded ? "max-w-2xl space-y-2.5" : "space-y-1.5"
         )}>
           {ALL_AGENT_IDS.map((id) => (
             <AgentCard key={id} agentId={id} isExpanded={isExpanded} />
