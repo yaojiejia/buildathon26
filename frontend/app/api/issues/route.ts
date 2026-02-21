@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { postIssueToSlack } from "@/lib/slack"
+import { recordIssueCreated } from "@/lib/issue-state"
 
 export type CreateIssueBody = {
   title: string
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
         { error: result.error ?? "Slack post failed" },
         { status: 502 }
       )
+    }
+
+    if (result.channel && result.ts) {
+      recordIssueCreated(result.channel, result.ts)
     }
 
     return NextResponse.json({

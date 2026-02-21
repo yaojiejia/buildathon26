@@ -69,6 +69,27 @@ export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>
         },
       ],
     },
+    {
+      type: "actions",
+      block_id: "issue_actions_2",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Report ready", emoji: true },
+          action_id: "report_ready",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "PR opened", emoji: true },
+          action_id: "pr_opened",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Review completed", emoji: true },
+          action_id: "review_completed",
+        },
+      ],
+    },
   ]
 }
 
@@ -139,6 +160,61 @@ export async function postStatusInThread(
   status: string
 ): Promise<{ ok: boolean; error?: string }> {
   return postReplyInThread(channel, threadTs, `*Status:* ${status}`)
+}
+
+/** Format elapsed ms as "0m", "5m", "1h 2m", etc. */
+export function formatTimeElapsed(ms: number): string {
+  if (ms < 0 || !Number.isFinite(ms)) return "—"
+  const sec = Math.floor(ms / 1000)
+  const min = Math.floor(sec / 60)
+  const hour = Math.floor(min / 60)
+  if (hour > 0) return `${hour}h ${min % 60}m`
+  if (min > 0) return `${min}m`
+  return `${sec}s`
+}
+
+export type StatusUpdatePayload = {
+  statusBadge: string
+  confidenceScore: number | null
+  timeElapsedMs: number | null
+}
+
+/**
+ * Build Block Kit blocks for a timeline status update (badge + confidence + elapsed).
+ */
+export function buildStatusUpdateBlocks(payload: StatusUpdatePayload): Record<string, unknown>[] {
+  const { statusBadge, confidenceScore, timeElapsedMs } = payload
+  const confidence =
+    confidenceScore != null ? `${confidenceScore}%` : "—"
+  const elapsed =
+    timeElapsedMs != null ? formatTimeElapsed(timeElapsedMs) : "—"
+  return [
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: `*${statusBadge}*` },
+        { type: "mrkdwn", text: `Confidence: ${confidence}` },
+        { type: "mrkdwn", text: `Elapsed: ${elapsed}` },
+      ],
+    },
+  ]
+}
+
+/**
+ * Post a timeline status update in the thread (TICKET-2.3).
+ */
+export async function postStatusUpdateInThread(
+  channel: string,
+  threadTs: string,
+  payload: StatusUpdatePayload
+): Promise<{ ok: boolean; error?: string }> {
+  const blocks = buildStatusUpdateBlocks(payload)
+  return postBlocksInThread(
+    channel,
+    threadTs,
+    blocks,
+    payload.statusBadge
+  )
 }
 
 /**
