@@ -12,6 +12,7 @@ import {
   Zap,
   Play,
 } from "lucide-react"
+import { GlowingEffect } from "@/components/ui/glowing-effect"
 
 export function IncidentHero() {
   const { startInvestigation } = useEngine()
@@ -33,7 +34,16 @@ export function IncidentHero() {
     <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
       <div className="w-full max-w-2xl px-6">
         {/* Incident card */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
+        <div className="group relative rounded-2xl">
+          <GlowingEffect
+            spread={40}
+            glow={true}
+            disabled={false}
+            proximity={64}
+            inactiveZone={0.01}
+            borderWidth={2}
+          />
+          <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
           {/* Glow accent */}
           <div className="absolute -top-24 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-cyan-500/8 blur-3xl" />
 
@@ -132,6 +142,7 @@ export function IncidentHero() {
                 Demo Mode
               </button>
             </div>
+          </div>
           </div>
         </div>
       </div>
