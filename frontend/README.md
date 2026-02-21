@@ -55,6 +55,17 @@ To have **new GitHub issues** create a case in the DB and post to Slack, GitHub 
 
 The app only acts on **issues.opened** (creates case, posts to Slack). Other events (e.g. `pull_request`, `issue_comment`) are accepted and logged but not processed.
 
+#### Slack @mention — start a case from Slack (TICKET-1.3)
+
+Users can start a BugPilot case by **@mentioning the app** in a channel or thread with a bug description. Optionally reference a GitHub issue (e.g. `#123` or `owner/repo#123`).
+
+1. **Slack app** → **Event Subscriptions** → **Enable Events** → **Request URL:** `https://<your-public-host>/api/slack/events` (use ngrok for local dev).
+2. Under **Subscribe to bot events**, add **app_mention**. Save.
+3. Reinstall the app to the workspace if prompted.
+4. Optional: set `GITHUB_DEFAULT_REPO=owner/repo` in `.env.local` so `#123` in the message resolves to that repo, and so the "Create GitHub issue" button can link to a new-issue URL.
+
+When someone mentions the bot, the app creates a case (with `sourceType: "slack"`), stores the message and Slack user/channel/thread, and replies in the same thread with action buttons (Investigate, Assign Human, Create GitHub issue if no issue linked, etc.). The case appears in the dashboard and the thread is the timeline.
+
 ### 3. Database
 
 ```bash

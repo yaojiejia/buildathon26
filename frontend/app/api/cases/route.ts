@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db"
 
 /**
  * GET /api/cases
- * Returns list of cases (id, state, title, repo, createdAt) so you can copy a case ID for testing.
+ * Returns list of cases (id, state, title, repo, sourceType, createdAt) for dashboard.
  */
 export async function GET() {
   try {
@@ -15,6 +15,9 @@ export async function GET() {
         state: true,
         title: true,
         repo: true,
+        sourceType: true,
+        slackChannelId: true,
+        slackThreadTs: true,
         createdAt: true,
       },
     })

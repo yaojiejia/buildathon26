@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import {
   verifySlackSignature,
   postBlocksInThread,
+  postReplyInThread,
   postStatusUpdateInThread,
   buildHandoffArtifactBlocks,
   type HandoffContext,
@@ -162,6 +163,34 @@ export async function POST(request: Request) {
           "Handoff artifact – Open in Cursor"
         )
         if (!r3.ok) console.error("Slack handoff post failed:", r3.error)
+        break
+      }
+      case "create_github_issue": {
+        const caseId = action.value
+        if (!caseId) break
+        const c = await prisma.case.findUnique({
+          where: { id: caseId },
+          select: { title: true, body: true },
+        })
+        const defaultRepo = process.env.GITHUB_DEFAULT_REPO?.trim()
+        if (!defaultRepo || !c) {
+          await postReplyInThread(
+            channelId,
+            messageTs,
+            c
+              ? "Create GitHub issue: set `GITHUB_DEFAULT_REPO=owner/repo` in env and create an issue manually, then link it to this case."
+              : "Case not found."
+          )
+          break
+        }
+        const title = encodeURIComponent(c.title)
+        const body = encodeURIComponent((c.body ?? "").slice(0, 2000))
+        const newIssueUrl = `https://github.com/${defaultRepo}/issues/new?title=${title}&body=${body}`
+        await postReplyInThread(
+          channelId,
+          messageTs,
+          `Create a GitHub issue for this case: <${newIssueUrl}|Open new issue>. After you create it, mention the issue here (e.g. #123) to link it.`
+        )
         break
       }
       default: {
