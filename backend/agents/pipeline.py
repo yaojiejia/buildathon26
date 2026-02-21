@@ -16,6 +16,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import StateGraph, START, END
 
+from llm import get_default_model
 from triage_agent import triage_issue
 from codebase_search_agent import search_codebase
 from events import (
@@ -39,6 +40,7 @@ class PipelineState(TypedDict, total=False):
     repo_name: str
     model: str
     clone_dir: str  # Optional: pre-existing local directory for the codebase
+    force_reindex: bool  # Optional: force Nia to re-index the repo
 
     # Event emitter (not serializable — runtime only)
     emitter: Any  # EventEmitter instance
@@ -70,7 +72,7 @@ def triage_node(state: PipelineState) -> dict:
         issue_title=state["issue_title"],
         issue_body=state.get("issue_body", ""),
         repo_name=state.get("repo_name", ""),
-        model=state.get("model", "claude-sonnet-4-20250514"),
+        model=state.get("model") or get_default_model(),
         emitter=em,
     )
 
@@ -97,8 +99,9 @@ def codebase_search_node(state: PipelineState) -> dict:
         repo_url=state["repo_url"],
         repo_name=state.get("repo_name", ""),
         triage_result=state.get("triage_result"),
-        model=state.get("model", "claude-sonnet-4-20250514"),
+        model=state.get("model") or get_default_model(),
         clone_dir=state.get("clone_dir"),
+        force_reindex=state.get("force_reindex", False),
         emitter=em,
     )
 
