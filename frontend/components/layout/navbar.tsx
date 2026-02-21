@@ -7,7 +7,7 @@ import {
   Bug,
   RotateCcw,
   Github,
-  AlertCircle,
+  Zap,
 } from "lucide-react"
 
 export function Navbar() {
@@ -17,8 +17,8 @@ export function Navbar() {
     <header className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-black/40 px-5 backdrop-blur-sm">
       {/* Logo */}
       <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.08]">
-          <Bug className="h-4 w-4 text-red-400" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+          <Bug className="h-4 w-4 text-cyan-400" />
         </div>
         <span className="text-sm font-bold tracking-tight text-foreground/90">
           BugPilot
@@ -32,7 +32,7 @@ export function Navbar() {
               <span className="text-xs text-muted-foreground">
                 {bugReport.repo}
               </span>
-              <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
                 {bugReport.severity.toUpperCase()}
               </span>
               <span className="text-xs text-muted-foreground/70">
@@ -49,13 +49,13 @@ export function Navbar() {
           <button
             onClick={startInvestigation}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold",
-              "bg-red-500 text-white shadow-lg shadow-red-500/20",
-              "transition-all hover:bg-red-400 hover:shadow-red-500/30",
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium",
+              "bg-white/[0.06] text-foreground/90 border border-white/[0.1]",
+              "transition-all hover:bg-white/[0.1] hover:border-white/[0.15]",
               "active:scale-[0.97]"
             )}
           >
-            <AlertCircle className="h-4 w-4" />
+            <Zap className="h-4 w-4 text-cyan-400" />
             Investigate
           </button>
         )}
@@ -63,10 +63,10 @@ export function Navbar() {
         {state.status === "running" && (
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-500" />
             </span>
-            <span className="text-xs font-medium text-red-400">
+            <span className="text-xs font-medium text-cyan-400">
               Investigation in progress
             </span>
           </div>

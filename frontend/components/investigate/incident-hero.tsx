@@ -4,7 +4,7 @@ import { useEngine } from "@/lib/engine"
 import { bugReport } from "@/lib/agent-data"
 import { cn } from "@/lib/utils"
 import {
-  AlertCircle,
+  AlertTriangle,
   Github,
   User,
   Clock,
@@ -20,14 +20,14 @@ export function IncidentHero() {
       <div className="w-full max-w-2xl px-6">
         {/* Incident card */}
         <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
-          {/* Glow accent */}
-          <div className="absolute -top-24 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-red-500/10 blur-3xl" />
+          {/* Glow accent — cyan instead of red */}
+          <div className="absolute -top-24 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-cyan-500/8 blur-3xl" />
 
           <div className="relative p-8">
             {/* Severity badge */}
             <div className="mb-4 flex items-center gap-2">
-              <span className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-3 py-1 text-xs font-bold text-red-400">
-                <AlertCircle className="h-3 w-3" />
+              <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-400">
+                <AlertTriangle className="h-3 w-3" />
                 {bugReport.severity.toUpperCase()}
               </span>
               <span className="rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-muted-foreground">
@@ -80,7 +80,7 @@ export function IncidentHero() {
             {/* AI Summary */}
             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <Zap className="h-3.5 w-3.5 text-amber-400" />
+                <Zap className="h-3.5 w-3.5 text-cyan-400" />
                 AI SUMMARY
               </div>
               <p className="mt-2 text-sm leading-relaxed text-foreground/70">
@@ -96,22 +96,14 @@ export function IncidentHero() {
               <button
                 onClick={startInvestigation}
                 className={cn(
-                  "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold",
-                  "bg-red-500 text-white shadow-lg shadow-red-500/25",
-                  "transition-all hover:bg-red-400 hover:shadow-red-500/30 hover:scale-[1.02]",
+                  "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
+                  "bg-white/[0.07] text-foreground/90 border border-white/[0.12]",
+                  "transition-all hover:bg-white/[0.12] hover:border-white/[0.18]",
                   "active:scale-[0.98]"
                 )}
               >
-                <Zap className="h-4 w-4" />
+                <Zap className="h-4 w-4 text-cyan-400" />
                 Launch Investigation
-              </button>
-              <button
-                className={cn(
-                  "flex items-center gap-2 rounded-xl border border-white/[0.08] px-5 py-3 text-sm font-medium",
-                  "text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground/80"
-                )}
-              >
-                Dismiss
               </button>
             </div>
           </div>
