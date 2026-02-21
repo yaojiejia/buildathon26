@@ -69,6 +69,27 @@ export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>
         },
       ],
     },
+    {
+      type: "actions",
+      block_id: "issue_actions_2",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Report ready", emoji: true },
+          action_id: "report_ready",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "PR opened", emoji: true },
+          action_id: "pr_opened",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Review completed", emoji: true },
+          action_id: "review_completed",
+        },
+      ],
+    },
   ]
 }
 
@@ -131,16 +152,160 @@ export async function postReplyInThread(
 }
 
 /**
- * Verify Slack request signature (X-Slack-Signature) using SLACK_SIGNING_SECRET.
+ * Post a status update in a thread (for TICKET-2.2 state changes).
+ */
+export async function postStatusInThread(
+  channel: string,
+  threadTs: string,
+  status: string
+): Promise<{ ok: boolean; error?: string }> {
+  return postReplyInThread(channel, threadTs, `*Status:* ${status}`)
+}
+
+/** Format elapsed ms as "0m", "5m", "1h 2m", etc. */
+export function formatTimeElapsed(ms: number): string {
+  if (ms < 0 || !Number.isFinite(ms)) return "—"
+  const sec = Math.floor(ms / 1000)
+  const min = Math.floor(sec / 60)
+  const hour = Math.floor(min / 60)
+  if (hour > 0) return `${hour}h ${min % 60}m`
+  if (min > 0) return `${min}m`
+  return `${sec}s`
+}
+
+export type StatusUpdatePayload = {
+  statusBadge: string
+  confidenceScore: number | null
+  timeElapsedMs: number | null
+}
+
+/**
+ * Build Block Kit blocks for a timeline status update (badge + confidence + elapsed).
+ */
+export function buildStatusUpdateBlocks(payload: StatusUpdatePayload): Record<string, unknown>[] {
+  const { statusBadge, confidenceScore, timeElapsedMs } = payload
+  const confidence =
+    confidenceScore != null ? `${confidenceScore}%` : "—"
+  const elapsed =
+    timeElapsedMs != null ? formatTimeElapsed(timeElapsedMs) : "—"
+  return [
+    {
+      type: "context",
+      elements: [
+        { type: "mrkdwn", text: `*${statusBadge}*` },
+        { type: "mrkdwn", text: `Confidence: ${confidence}` },
+        { type: "mrkdwn", text: `Elapsed: ${elapsed}` },
+      ],
+    },
+  ]
+}
+
+/**
+ * Post a timeline status update in the thread (TICKET-2.3).
+ */
+export async function postStatusUpdateInThread(
+  channel: string,
+  threadTs: string,
+  payload: StatusUpdatePayload
+): Promise<{ ok: boolean; error?: string }> {
+  const blocks = buildStatusUpdateBlocks(payload)
+  return postBlocksInThread(
+    channel,
+    threadTs,
+    blocks,
+    payload.statusBadge
+  )
+}
+
+/**
+ * Post message with blocks in a thread (e.g. handoff artifact).
+ */
+export async function postBlocksInThread(
+  channel: string,
+  threadTs: string,
+  blocks: Record<string, unknown>[],
+  textFallback: string
+): Promise<{ ok: boolean; error?: string }> {
+  const { token } = getSlackConfig()
+  const res = await fetch(`${SLACK_API}/chat.postMessage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      channel,
+      thread_ts: threadTs,
+      text: textFallback,
+      blocks,
+    }),
+  })
+  const data = (await res.json()) as { ok: boolean; error?: string }
+  return { ok: data.ok, error: data.error }
+}
+
+export type HandoffContext = {
+  title: string
+  summary: string
+  repoLink: string
+}
+
+/**
+ * Build Block Kit blocks for Open in Cursor handoff artifact.
+ */
+export function buildHandoffArtifactBlocks(ctx: HandoffContext): Record<string, unknown>[] {
+  const cursorOpenUrl =
+    process.env.CURSOR_OPEN_URL ||
+    `https://cursor.com/open?url=${encodeURIComponent(ctx.repoLink)}`
+  return [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "📂 Handoff artifact – Open in Cursor", emoji: true },
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*Issue:* ${ctx.title}` },
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: ctx.summary },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<${ctx.repoLink}|View repository> · <${cursorOpenUrl}|Open in Cursor>`,
+      },
+    },
+  ]
+}
+
+const FIVE_MINUTES_SEC = 5 * 60
+
+/**
+ * Verify Slack request signature (X-Slack-Signature).
+ * Slack signs: base_string = "v0:" + timestamp + ":" + raw_body (timestamp from X-Slack-Request-Timestamp).
  */
 export function verifySlackSignature(
-  body: string,
-  signature: string | null
+  body: string | Buffer,
+  signature: string | null,
+  requestTimestamp: string | null
 ): boolean {
-  const secret = process.env.SLACK_SIGNING_SECRET
-  if (!secret || !signature || !signature.startsWith("v0=")) return false
-  const sigBaseline = "v0=" + crypto.createHmac("sha256", secret).update(body).digest("hex")
-  const a = Buffer.from(signature)
-  const b = Buffer.from(sigBaseline)
-  return a.length === b.length && crypto.timingSafeEqual(a, b)
+  const rawSecret = process.env.SLACK_SIGNING_SECRET
+  const secret = rawSecret?.trim()
+  const sig = signature?.trim()
+  const ts = requestTimestamp?.trim()
+  if (!secret || !sig || !sig.startsWith("v0=") || !ts) return false
+  const tsNum = parseInt(ts, 10)
+  if (Number.isNaN(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > FIVE_MINUTES_SEC) return false
+  const bodyBuf = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf8")
+  const baseString = "v0:" + ts + ":" + bodyBuf.toString("utf8")
+  const sigBaseline = "v0=" + crypto.createHmac("sha256", secret).update(baseString, "utf8").digest("hex")
+  const a = Buffer.from(sig, "utf8")
+  const b = Buffer.from(sigBaseline, "utf8")
+  const ok = a.length === b.length && crypto.timingSafeEqual(a, b)
+  if (!ok) {
+    console.warn("[Slack signature] FAILED", "bodyLen=" + bodyBuf.length, "hasSig=" + !!sig, "secretLen=" + secret.length, "recv=" + sig.slice(0, 14) + "...", "comp=" + sigBaseline.slice(0, 14) + "...")
+  }
+  return ok
 }

@@ -50,31 +50,8 @@ Three emitter implementations:
 - `CallbackEventEmitter` — forwards events to a callback (for WebSocket/SSE)
 - `NoOpEventEmitter` — silent
 
-## Project Structure
-
-```
-buildathon26/
-├── business_case/                # Full-stack FastAPI app (test target)
-│   ├── main.py                   # Entry point — uvicorn + seed data
-│   ├── models.py                 # SQLAlchemy models (Product, Customer, Order, …)
-│   ├── services.py               # Business logic (discount calc, refunds) ← 2 bugs
-│   ├── routes.py                 # FastAPI REST endpoints
-│   ├── requirements.txt          # fastapi, uvicorn, sqlalchemy, pydantic
-│   └── templates/
-│       └── index.html            # Simple UI
-├── backend/
-│   ├── .env                      # API keys (ANTHROPIC_API_KEY, NIA_API_KEY)
-│   ├── README.md                 # This file
-│   └── agents/
-│       ├── requirements.txt      # Python dependencies
-│       ├── events.py             # Event emitter system
-│       ├── triage_agent.py       # Triage Agent (Claude)
-│       ├── codebase_search_agent.py  # Codebase Search Agent (Claude + Nia)
-│       ├── pipeline.py           # LangGraph pipeline orchestration
-│       └── example/
-│           ├── run_pipeline.py   # CLI runner with test scenarios
-│           └── last_report.json  # Most recent report output
-```
+1. In the app: **Basic Information** → **App Credentials**.
+2. Copy **Signing Secret** (not "Client Secret"). Paste into `.env.local` with no extra spaces or newlines.
 
 ## Setup
 
@@ -122,12 +99,14 @@ This runs against the `business_case/` FastAPI app using the default `both_bugs`
 
 ### Run against a GitHub repo (with Nia)
 
-```bash
-python example/run_pipeline.py \
-  --scenario discount_stacking \
-  --repo-url "https://github.com/yaojiejia/buildathon_example" \
-  --repo-name "yaojiejia/buildathon_example"
-```
+- Posts one message per issue (thread root) with:
+  - **Issue title**
+  - **Short summary**
+  - **Repo link**
+- Adds three buttons:
+  - **Investigate** – transition to `INVESTIGATING`; thread gets status update
+  - **Assign Human** – transition to `NEEDS_HUMAN`; thread gets status update
+  - **Open in Cursor** – generates a handoff artifact (issue title, summary, repo + Open in Cursor link) and posts it in the thread
 
 If `NIA_API_KEY` is set, Nia will index the repo and answer investigation questions with full codebase context.
 
