@@ -5,9 +5,29 @@ Run:
     cd business_case
     pip install -r requirements.txt
     python main.py
+
+Set SENTRY_DSN in business_case/.env to enable Sentry error tracking.
 """
 
+import logging
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from this directory
+load_dotenv(Path(__file__).parent / ".env")
+
+# Configure Python logging so logger.info() etc. actually output
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -15,6 +35,30 @@ from fastapi.staticfiles import StaticFiles
 
 from models import init_db, SessionLocal, Product, Customer, PromoCode
 from routes import router
+
+# ── Sentry ────────────────────────────────────────────────────────
+
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            FastApiIntegration(),
+            SqlalchemyIntegration(),
+            LoggingIntegration(
+                level=logging.INFO,      # INFO+ captured as breadcrumbs
+                event_level=logging.INFO, # INFO+ also sent as Sentry events
+            ),
+        ],
+        traces_sample_rate=1.0,        # capture 100% of transactions
+        profiles_sample_rate=0.5,      # profile 50% of sampled transactions
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "development"),
+        send_default_pii=True,         # attach user IP / headers for debugging
+    )
+    print(f"✓ Sentry initialized (env={os.environ.get('SENTRY_ENVIRONMENT', 'development')})")
+else:
+    print("⚠ SENTRY_DSN not set — Sentry disabled")
 
 app = FastAPI(title="ShopEasy", version="0.1.0")
 app.include_router(router)

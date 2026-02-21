@@ -35,7 +35,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import anthropic
+from llm import call_llm, get_default_model
 
 # ── Nia SDK imports ──────────────────────────────────────────────
 from nia_py import AuthenticatedClient
@@ -47,6 +47,7 @@ from nia_py.api.v2_api import (
     grep_repository_v2_v2_repositories_repository_id_grep_post as nia_grep,
     get_repository_content_v2_v2_repositories_repository_id_content_get as nia_get_content,
     get_repository_tree_v2_v2_repositories_repository_id_tree_get as nia_get_tree,
+    delete_repository_v2_v2_repositories_repository_id_delete as nia_delete_repo,
 )
 from nia_py.models import (
     RepositoryRequest,
@@ -75,7 +76,7 @@ NIA_BASE_URL = "https://apigcp.trynia.ai/v2"
 MAX_SUSPECT_FILES = 10
 MAX_QUESTIONS = 5
 INDEX_POLL_INTERVAL = 5   # seconds between status checks
-INDEX_POLL_TIMEOUT = 120  # max seconds to wait for indexing
+INDEX_POLL_TIMEOUT = 300  # max seconds to wait for indexing (Nia can be slow)
 
 # Extensions for local fallback
 CODE_EXTENSIONS = {
@@ -179,40 +180,60 @@ actually appear in the provided index.
 # ═══════════════════════════════════════════════════════════════════
 
 def _call_claude(system: str, user_msg: str, model: str) -> str:
-    """Call Claude and return the text response."""
-    client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": user_msg}],
+    """Call the configured LLM and return the text response."""
+    return call_llm(system=system, user_msg=user_msg, model=model)
+
+
+def _fix_json_escapes(text: str) -> str:
+    """Fix invalid JSON escape sequences (e.g. \\s, \\d from regex patterns).
+
+    JSON only allows: \\\\ \\/ \\\" \\b \\f \\n \\r \\t \\uXXXX
+    Anything else (like \\s \\w \\d from regexes) must be double-escaped.
+    """
+    import re as _re
+    # Match a single backslash NOT followed by a valid JSON escape char
+    return _re.sub(
+        r'\\(?!["\\/bfnrtu])',
+        r'\\\\',
+        text,
     )
-    raw = response.content[0].text.strip()
-    # Strip markdown fences if present
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return raw
 
 
 def _parse_json_safe(raw: str, fallback: dict | None = None, em: EventEmitter | None = None) -> dict:
-    """Parse JSON from Claude's response with fallback."""
+    """Parse JSON from LLM response with robust fallback for invalid escapes."""
     em = em or get_default_emitter()
+
+    # Try direct parse first
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
         em.emit(A, EVENT_LOG, "json_parse", f"Direct parse failed: {e}")
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start >= 0 and end > start:
-            try:
-                result = json.loads(raw[start:end])
-                em.emit(A, EVENT_LOG, "json_parse", f"Extracted JSON from position {start}:{end}")
-                return result
-            except json.JSONDecodeError as e2:
-                em.emit(A, EVENT_LOG, "json_parse", f"Extraction also failed: {e2}")
-        else:
-            em.emit(A, EVENT_LOG, "json_parse", f"No JSON object found in response (len={len(raw)})")
+
+    # Extract the JSON object substring
+    start = raw.find("{")
+    end = raw.rfind("}") + 1
+    if start < 0 or end <= start:
+        em.emit(A, EVENT_LOG, "json_parse", f"No JSON object found in response (len={len(raw)})")
         return fallback or {}
+
+    snippet = raw[start:end]
+
+    # Try parsing the extracted snippet
+    try:
+        return json.loads(snippet)
+    except json.JSONDecodeError as e2:
+        em.emit(A, EVENT_LOG, "json_parse", f"Snippet parse failed: {e2}")
+
+    # Fix invalid escape sequences (common with regex patterns from LLMs)
+    fixed = _fix_json_escapes(snippet)
+    try:
+        result = json.loads(fixed)
+        em.emit(A, EVENT_LOG, "json_parse", "Parsed after fixing escape sequences")
+        return result
+    except json.JSONDecodeError as e3:
+        em.emit(A, EVENT_LOG, "json_parse", f"Parse after escape fix also failed: {e3}")
+
+    return fallback or {}
 
 
 def _build_issue_context(
@@ -304,30 +325,117 @@ def _get_nia_client() -> AuthenticatedClient | None:
     )
 
 
+def _delete_nia_repo(
+    client: AuthenticatedClient,
+    repo_id: str,
+    em: EventEmitter | None = None,
+) -> bool:
+    """Delete a repository from Nia's index. Returns True on success."""
+    em = em or get_default_emitter()
+    try:
+        em.emit(A, EVENT_PROGRESS, "nia_reindex",
+                f"Deleting old index (id={repo_id})...")
+        nia_delete_repo.sync(repository_id=repo_id, client=client)
+        em.emit(A, EVENT_PROGRESS, "nia_reindex",
+                f"Old index deleted successfully")
+        return True
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "nia_reindex",
+                f"Failed to delete old index: {e}")
+        return False
+
+
+def _repo_matches(item_repo: str, target: str) -> bool:
+    """Check if a Nia repository entry matches the target repo name.
+
+    Handles different formats: 'owner/repo', 'https://github.com/owner/repo', etc.
+    """
+    if not item_repo or not target:
+        return False
+    # Normalize both to 'owner/repo' form
+    for s in [item_repo, target]:
+        pass  # just for readability
+    norm_item = item_repo.rstrip("/").rstrip(".git")
+    norm_target = target.rstrip("/").rstrip(".git")
+    # Direct match
+    if norm_item == norm_target:
+        return True
+    # Check if target appears at the end (e.g. item has full URL)
+    if norm_item.endswith("/" + norm_target):
+        return True
+    if norm_target.endswith("/" + norm_item):
+        return True
+    # Extract owner/repo from URLs
+    for prefix in ["https://github.com/", "http://github.com/", "github.com/"]:
+        if norm_item.startswith(prefix):
+            norm_item = norm_item[len(prefix):]
+        if norm_target.startswith(prefix):
+            norm_target = norm_target[len(prefix):]
+    return norm_item == norm_target
+
+
 def _nia_index_repo(
     client: AuthenticatedClient,
     repo: str,
     branch: str | None = None,
+    force_reindex: bool = False,
     em: EventEmitter | None = None,
 ) -> str | None:
-    """Index a GitHub repository on Nia. Returns the repository_id or None."""
+    """Index a GitHub repository on Nia. Returns the repository_id or None.
+
+    Args:
+        force_reindex: If True, delete ALL existing indexes for this repo and re-index.
+    """
     em = em or get_default_emitter()
 
     em.emit(A, EVENT_PROGRESS, "nia_indexing",
             f"Checking if '{repo}' is already indexed...")
 
     existing = nia_list_repos.sync(client=client, q=repo)
+
+    # Log everything we find for debugging
+    found_any = False
+    if isinstance(existing, list) and existing:
+        for item in existing:
+            item_repo = getattr(item, "repository", None) or getattr(item, "name", "?")
+            item_status = getattr(item, "status", "?")
+            item_id = getattr(item, "repository_id", None) or getattr(item, "id", "?")
+            em.emit(A, EVENT_LOG, "nia_indexing",
+                    f"  Found: repo={item_repo}  status={item_status}  id={item_id}")
+            found_any = True
+    elif hasattr(existing, "to_dict"):
+        em.emit(A, EVENT_LOG, "nia_indexing",
+                f"  List response (non-list): {existing}")
+    else:
+        em.emit(A, EVENT_LOG, "nia_indexing",
+                "  No existing repositories found")
+
     if isinstance(existing, list):
         for item in existing:
-            if item.repository == repo and item.status in (
-                "ready", "completed", "indexed",
-            ):
+            item_repo = getattr(item, "repository", None) or getattr(item, "name", "")
+            item_id = getattr(item, "repository_id", None) or getattr(item, "id", None)
+            item_status = getattr(item, "status", "")
+
+            if not _repo_matches(item_repo, repo):
+                continue
+
+            if force_reindex:
+                # Delete ALL matching repos regardless of status when force re-indexing
+                em.emit(A, EVENT_PROGRESS, "nia_reindex",
+                        f"Force re-index — deleting '{item_repo}' "
+                        f"(id={item_id}, status={item_status})")
+                _delete_nia_repo(client, item_id, em)
+            elif item_status in ("ready", "completed", "indexed"):
                 em.emit(A, EVENT_PROGRESS, "nia_indexing",
-                        f"Repository already indexed (id={item.repository_id})")
-                return item.repository_id
+                        f"Repository already indexed (id={item_id})")
+                return item_id
+
+    if not found_any and not force_reindex:
+        em.emit(A, EVENT_LOG, "nia_indexing",
+                "No existing index found — will create new one")
 
     em.emit(A, EVENT_PROGRESS, "nia_indexing",
-            f"Sending indexing request for '{repo}'...")
+            f"Sending indexing request for '{repo}' (branch={branch or 'default'})...")
     body = RepositoryRequest(repository=repo)
     if branch:
         body.branch = branch
@@ -831,8 +939,9 @@ def search_codebase(
     repo_url: str,
     repo_name: str = "",
     triage_result: dict | None = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str | None = None,
     clone_dir: str | None = None,
+    force_reindex: bool = False,
     emitter: EventEmitter | None = None,
 ) -> dict:
     """Run the codebase search agent.
@@ -845,12 +954,14 @@ def search_codebase(
         triage_result: Optional output from the triage agent.
         model: Claude model to use.
         clone_dir: Optional pre-existing clone directory.
+        force_reindex: If True, delete and re-index the repo on Nia.
         emitter: Optional event emitter for status updates.
 
     Returns:
         Structured investigation report as a dict.
     """
     em = emitter or get_default_emitter()
+    model = model or get_default_model()
 
     em.emit(A, EVENT_STATUS, "starting",
             "═" * 58)
@@ -912,7 +1023,10 @@ def search_codebase(
         # ── Nia path ──────────────────────────────────────────────
         em.emit(A, EVENT_PROGRESS, "nia_indexing",
                 f"Using Nia for codebase search (repo: {github_repo})")
-        repo_id = _nia_index_repo(nia_client, github_repo, em=em)
+        if force_reindex:
+            em.emit(A, EVENT_PROGRESS, "nia_reindex",
+                    "Force re-index enabled — will delete stale index and re-index")
+        repo_id = _nia_index_repo(nia_client, github_repo, branch="main", force_reindex=force_reindex, em=em)
 
         if repo_id:
             evidence = _collect_evidence_nia(

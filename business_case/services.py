@@ -7,8 +7,12 @@ Handles:
   - Refund processing
 """
 
+import logging
+
 from sqlalchemy.orm import Session
 from models import Product, Customer, Order, OrderItem, PromoCode
+
+logger = logging.getLogger(__name__)
 
 
 # ── Loyalty tier discount mapping ─────────────────────────────────
@@ -122,6 +126,13 @@ def place_order(
     # Calculate discount
     discount_amount, final_total = calculate_discount(subtotal, customer, promo_code)
 
+    logger.info(
+        "Order discount calculated: subtotal=%.2f discount=%.2f total=%.2f "
+        "customer=%s tier=%s promo=%s",
+        subtotal, discount_amount, final_total,
+        customer.name, customer.loyalty_tier, promo_code_str,
+    )
+
     # Award loyalty points (1 point per dollar spent)
     customer.loyalty_points += int(final_total)
 
@@ -149,6 +160,8 @@ def place_order(
 
     db.commit()
     db.refresh(order)
+
+    logger.info("Order #%d placed: total=%.2f customer_id=%d", order.id, order.total, customer.id)
     return order
 
 
@@ -201,6 +214,11 @@ def process_refund(db: Session, order_id: int) -> dict:
     order.status = "refunded"
     order.refund_amount = round(refund_amount, 2)
     db.commit()
+
+    logger.info(
+        "Refund processed: order_id=%d refund_amount=%.2f original_total=%.2f",
+        order.id, refund_amount, order.total,
+    )
 
     return {
         "order_id": order.id,

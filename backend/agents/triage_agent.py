@@ -1,5 +1,5 @@
 """
-Triage Agent — classifies GitHub issues using Claude API.
+Triage Agent — classifies GitHub issues using an LLM.
 
 Takes a GitHub issue (title + body) and returns structured JSON:
   - severity: critical | high | medium | low
@@ -10,8 +10,8 @@ Takes a GitHub issue (title + body) and returns structured JSON:
 """
 
 import json
-import anthropic
 
+from llm import call_llm, get_default_model
 from events import (
     EventEmitter,
     get_default_emitter,
@@ -66,7 +66,7 @@ def triage_issue(
     issue_body: str,
     repo_name: str = "",
     existing_issues: list[str] | None = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str | None = None,
     emitter: EventEmitter | None = None,
 ) -> dict:
     """Run the triage agent on a GitHub issue.
@@ -84,6 +84,7 @@ def triage_issue(
     """
     em = emitter or get_default_emitter()
     A = AGENT_TRIAGE  # shorthand
+    model = model or get_default_model()
 
     # ── Starting ──────────────────────────────────────────────────
     em.emit(A, EVENT_STATUS, "starting", "Triage Agent starting", {
@@ -102,8 +103,6 @@ def triage_issue(
     em.emit(A, EVENT_PROGRESS, "building_prompt",
             f"Building prompt for: \"{issue_title}\"")
 
-    client = anthropic.Anthropic()
-
     user_message = f"Issue Title: {issue_title}\n\n"
     user_message += f"Issue Body:\n{issue_body or '(no description provided)'}\n"
 
@@ -118,41 +117,53 @@ def triage_issue(
     em.emit(A, EVENT_LOG, "building_prompt",
             f"Prompt built ({len(user_message)} chars)")
 
-    # ── Call Claude ───────────────────────────────────────────────
-    em.emit(A, EVENT_PROGRESS, "calling_claude",
-            f"Calling Claude ({model}) for triage analysis...")
+    # ── Call LLM ──────────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "calling_llm",
+            f"Calling LLM ({model}) for triage analysis...")
 
     try:
-        response = client.messages.create(
+        raw_text = call_llm(
+            system=TRIAGE_SYSTEM_PROMPT,
+            user_msg=user_message,
             model=model,
             max_tokens=1024,
-            system=TRIAGE_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
         )
     except Exception as e:
-        em.emit(A, EVENT_ERROR, "calling_claude", f"Claude API error: {e}")
+        em.emit(A, EVENT_ERROR, "calling_llm", f"LLM API error: {e}")
         raise
 
-    raw_text = response.content[0].text.strip()
-
-    em.emit(A, EVENT_LOG, "calling_claude",
+    em.emit(A, EVENT_LOG, "calling_llm",
             f"Received response ({len(raw_text)} chars)")
 
     # ── Parse JSON ───────────────────────────────────────────────
     em.emit(A, EVENT_PROGRESS, "parsing_response",
-            "Parsing Claude response...")
-
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            "Parsing LLM response...")
 
     try:
         result = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        em.emit(A, EVENT_ERROR, "parsing_response",
-                f"Failed to parse JSON: {e}")
-        em.emit(A, EVENT_LOG, "parsing_response",
-                f"Raw response: {raw_text[:500]}")
-        raise
+    except json.JSONDecodeError:
+        # Fallback: extract JSON object and fix invalid escapes
+        import re as _re
+        start = raw_text.find("{")
+        end = raw_text.rfind("}") + 1
+        if start >= 0 and end > start:
+            snippet = raw_text[start:end]
+            # Fix invalid JSON escapes (e.g. \s \d from regex patterns)
+            fixed = _re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', snippet)
+            try:
+                result = json.loads(fixed)
+            except json.JSONDecodeError as e2:
+                em.emit(A, EVENT_ERROR, "parsing_response",
+                        f"Failed to parse JSON even after fix: {e2}")
+                em.emit(A, EVENT_LOG, "parsing_response",
+                        f"Raw response: {raw_text[:500]}")
+                raise
+        else:
+            em.emit(A, EVENT_ERROR, "parsing_response",
+                    f"No JSON object found in response")
+            em.emit(A, EVENT_LOG, "parsing_response",
+                    f"Raw response: {raw_text[:500]}")
+            raise ValueError("No JSON object in LLM response")
 
     # ── Validate ─────────────────────────────────────────────────
     expected_keys = {"severity", "likely_module", "is_duplicate", "duplicate_of", "summary"}

@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 from pipeline import pipeline
+from llm import get_default_model
 from events import ConsoleEventEmitter
 
 
@@ -97,7 +98,9 @@ def main():
     parser.add_argument("--repo-url", type=str, default=None,
                         help="Remote git repo URL (if not set, uses local business_case/)")
     parser.add_argument("--repo-name", type=str, default="shopeasy/order-mgmt", help="Repo name")
-    parser.add_argument("--model", type=str, default="claude-sonnet-4-20250514", help="Claude model")
+    parser.add_argument("--model", type=str, default=None, help="LLM model (default: from LLM_PROVIDER config)")
+    parser.add_argument("--reindex", action="store_true",
+                        help="Force Nia to re-index the repo (deletes stale index first)")
     parser.add_argument("--list-scenarios", action="store_true", help="List available test scenarios")
     args = parser.parse_args()
 
@@ -113,8 +116,17 @@ def main():
     title = args.title or scenario["title"]
     body = args.body or scenario["body"]
 
+    # ── Resolve model ────────────────────────────────────────────
+    model = args.model or get_default_model()
+
     # ── Verify API key ───────────────────────────────────────────
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    from llm import get_provider, PROVIDER_NVIDIA, PROVIDER_ANTHROPIC
+    provider = get_provider()
+    if provider == PROVIDER_NVIDIA and not os.environ.get("NVIDIA_API_KEY"):
+        print("Error: NVIDIA_API_KEY not set.", file=sys.stderr)
+        print("Add it to backend/.env or: export NVIDIA_API_KEY=nvapi-...", file=sys.stderr)
+        sys.exit(1)
+    elif provider == PROVIDER_ANTHROPIC and not os.environ.get("ANTHROPIC_API_KEY"):
         print("Error: ANTHROPIC_API_KEY not set.", file=sys.stderr)
         print("Add it to backend/.env or: export ANTHROPIC_API_KEY=sk-ant-...", file=sys.stderr)
         sys.exit(1)
@@ -136,7 +148,10 @@ def main():
         print(f"  Source:   local ({BUSINESS_CASE_DIR})")
     else:
         print(f"  Source:   {args.repo_url}")
-    print(f"  Model:    {args.model}")
+    if args.reindex:
+        print(f"  Reindex:  YES (force re-index on Nia)")
+    print(f"  Provider: {provider}")
+    print(f"  Model:    {model}")
     print("=" * 60)
     print()
 
@@ -145,7 +160,7 @@ def main():
         "issue_title": title,
         "issue_body": body,
         "repo_name": args.repo_name,
-        "model": args.model,
+        "model": model,
         "emitter": emitter,
     }
 
@@ -154,6 +169,9 @@ def main():
         input_state["clone_dir"] = BUSINESS_CASE_DIR
     else:
         input_state["repo_url"] = args.repo_url
+
+    if args.reindex:
+        input_state["force_reindex"] = True
 
     # ── Run the pipeline ─────────────────────────────────────────
     result = pipeline.invoke(input_state)
