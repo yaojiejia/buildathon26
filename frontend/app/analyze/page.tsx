@@ -20,6 +20,7 @@ export default function AnalyzePage() {
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [repoUrl, setRepoUrl] = useState("")
 
   const handleStartAnalysis = () => {
     setIsAnalyzing(true)
@@ -30,6 +31,17 @@ export default function AnalyzePage() {
       setAnalysisProgress((prev) => {
         if (prev >= 100) {
           clearInterval(interval)
+          // Post issue summary to Slack (one thread per case) when analysis completes
+          fetch("/api/issues", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              title: "Analysis complete – scaling recommendations ready",
+              summary:
+                "Latency distribution, read/write mix, and hot endpoints have been analyzed. Architecture plan generated.",
+              repoLink: repoUrl || "https://github.com/username/repo",
+            }),
+          }).catch(() => {})
           return 100
         }
         return prev + 10
@@ -97,6 +109,8 @@ export default function AnalyzePage() {
                       type="text"
                       placeholder="https://github.com/username/repo"
                       className="w-full px-3 py-2 border rounded-md"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
