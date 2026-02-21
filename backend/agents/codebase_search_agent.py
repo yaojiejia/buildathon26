@@ -40,17 +40,10 @@ from llm import call_llm, get_default_model
 # ── Nia SDK imports ──────────────────────────────────────────────
 from nia_py import AuthenticatedClient
 from nia_py.api.v2_api import (
-    index_repository_v2_v2_repositories_post as nia_index_repo,
-    list_repositories_v2_v2_repositories_get as nia_list_repos,
-    get_repository_status_v2_v2_repositories_repository_id_get as nia_repo_status,
     query_repositories_v2_v2_query_post as nia_query,
     grep_repository_v2_v2_repositories_repository_id_grep_post as nia_grep,
-    get_repository_content_v2_v2_repositories_repository_id_content_get as nia_get_content,
-    get_repository_tree_v2_v2_repositories_repository_id_tree_get as nia_get_tree,
-    delete_repository_v2_v2_repositories_repository_id_delete as nia_delete_repo,
 )
 from nia_py.models import (
-    RepositoryRequest,
     QueryRequest,
     QueryRequestMessagesItem,
     CodeGrepRequest,
@@ -76,9 +69,6 @@ A = AGENT_CODEBASE_SEARCH  # shorthand for event emission
 NIA_BASE_URL = "https://apigcp.trynia.ai/v2"
 MAX_SUSPECT_FILES = 10
 MAX_QUESTIONS = 5
-INDEX_POLL_INTERVAL = 5   # seconds between status checks
-INDEX_POLL_TIMEOUT = 300  # max seconds to wait for indexing (Nia can be slow)
-
 # Extensions for local fallback
 CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
@@ -200,6 +190,70 @@ def _fix_json_escapes(text: str) -> str:
     )
 
 
+def _strip_json_comments(text: str) -> str:
+    """Strip // and /* */ comments while preserving quoted strings."""
+    out = []
+    i = 0
+    in_str = False
+    escape = False
+    n = len(text)
+
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+
+        if in_str:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == "/" and nxt == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
+
+
+def _remove_trailing_commas(text: str) -> str:
+    """Remove trailing commas before closing } or ] in JSON-ish text."""
+    import re as _re
+    return _re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _extract_list_strings(raw: str, key: str) -> list[str]:
+    """Last-resort extraction of string items from an array field."""
+    import re as _re
+    m = _re.search(rf'"{_re.escape(key)}"\s*:\s*\[(.*?)\]', raw, _re.DOTALL)
+    if not m:
+        return []
+    body = m.group(1)
+    return [s for s in _re.findall(r'"((?:\\.|[^"\\])*)"', body)]
+
+
 def _parse_json_safe(raw: str, fallback: dict | None = None, em: EventEmitter | None = None) -> dict:
     """Parse JSON from LLM response with robust fallback for invalid escapes."""
     em = em or get_default_emitter()
@@ -225,14 +279,31 @@ def _parse_json_safe(raw: str, fallback: dict | None = None, em: EventEmitter | 
     except json.JSONDecodeError as e2:
         em.emit(A, EVENT_LOG, "json_parse", f"Snippet parse failed: {e2}")
 
+    # Try parsing after removing comments/trailing commas
+    cleaned = _remove_trailing_commas(_strip_json_comments(snippet))
+    try:
+        result = json.loads(cleaned)
+        em.emit(A, EVENT_LOG, "json_parse", "Parsed after stripping comments/trailing commas")
+        return result
+    except json.JSONDecodeError as e_clean:
+        em.emit(A, EVENT_LOG, "json_parse", f"Parse after comment cleanup failed: {e_clean}")
+
     # Fix invalid escape sequences (common with regex patterns from LLMs)
-    fixed = _fix_json_escapes(snippet)
+    fixed = _fix_json_escapes(cleaned)
     try:
         result = json.loads(fixed)
         em.emit(A, EVENT_LOG, "json_parse", "Parsed after fixing escape sequences")
         return result
     except json.JSONDecodeError as e3:
         em.emit(A, EVENT_LOG, "json_parse", f"Parse after escape fix also failed: {e3}")
+
+    # Last-resort structured extraction for known schema fields
+    questions = _extract_list_strings(raw, "questions")
+    patterns = _extract_list_strings(raw, "grep_patterns")
+    if questions or patterns:
+        em.emit(A, EVENT_LOG, "json_parse",
+                f"Recovered fields via heuristic extraction (questions={len(questions)}, patterns={len(patterns)})")
+        return {"questions": questions, "grep_patterns": patterns}
 
     return fallback or {}
 
@@ -264,6 +335,7 @@ def _generate_questions(
     issue_body: str,
     triage_result: dict | None,
     model: str,
+    max_questions: int = MAX_QUESTIONS,
     em: EventEmitter | None = None,
 ) -> tuple[list[str], list[str]]:
     """Ask the LLM to generate targeted investigation questions + grep patterns."""
@@ -294,7 +366,8 @@ def _generate_questions(
         em.emit(A, EVENT_ERROR, "generating_questions",
                 f"No questions in parsed result. Keys: {list(parsed.keys())}")
 
-    questions = parsed.get("questions", [])[:MAX_QUESTIONS]
+    max_questions = max(1, min(int(max_questions), 10))
+    questions = parsed.get("questions", [])[:max_questions]
     grep_patterns = parsed.get("grep_patterns", [])
 
     em.emit(A, EVENT_PROGRESS, "generating_questions",
@@ -312,7 +385,7 @@ def _generate_questions(
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  NIA CLIENT + INDEXING
+#  NIA CLIENT
 # ═══════════════════════════════════════════════════════════════════
 
 def _get_nia_client() -> AuthenticatedClient | None:
@@ -326,168 +399,13 @@ def _get_nia_client() -> AuthenticatedClient | None:
     )
 
 
-def _delete_nia_repo(
-    client: AuthenticatedClient,
-    repo_id: str,
-    em: EventEmitter | None = None,
-) -> bool:
-    """Delete a repository from Nia's index. Returns True on success."""
-    em = em or get_default_emitter()
-    try:
-        em.emit(A, EVENT_PROGRESS, "nia_reindex",
-                f"Deleting old index (id={repo_id})...")
-        nia_delete_repo.sync(repository_id=repo_id, client=client)
-        em.emit(A, EVENT_PROGRESS, "nia_reindex",
-                f"Old index deleted successfully")
-        return True
-    except Exception as e:
-        em.emit(A, EVENT_ERROR, "nia_reindex",
-                f"Failed to delete old index: {e}")
-        return False
-
-
-def _repo_matches(item_repo: str, target: str) -> bool:
-    """Check if a Nia repository entry matches the target repo name.
-
-    Handles different formats: 'owner/repo', 'https://github.com/owner/repo', etc.
-    """
-    if not item_repo or not target:
-        return False
-    # Normalize both to 'owner/repo' form
-    for s in [item_repo, target]:
-        pass  # just for readability
-    norm_item = item_repo.rstrip("/").rstrip(".git")
-    norm_target = target.rstrip("/").rstrip(".git")
-    # Direct match
-    if norm_item == norm_target:
-        return True
-    # Check if target appears at the end (e.g. item has full URL)
-    if norm_item.endswith("/" + norm_target):
-        return True
-    if norm_target.endswith("/" + norm_item):
-        return True
-    # Extract owner/repo from URLs
-    for prefix in ["https://github.com/", "http://github.com/", "github.com/"]:
-        if norm_item.startswith(prefix):
-            norm_item = norm_item[len(prefix):]
-        if norm_target.startswith(prefix):
-            norm_target = norm_target[len(prefix):]
-    return norm_item == norm_target
-
-
-def _nia_index_repo(
-    client: AuthenticatedClient,
-    repo: str,
-    branch: str | None = None,
-    force_reindex: bool = False,
-    em: EventEmitter | None = None,
-) -> str | None:
-    """Index a GitHub repository on Nia. Returns the repository_id or None.
-
-    Args:
-        force_reindex: If True, delete ALL existing indexes for this repo and re-index.
-    """
-    em = em or get_default_emitter()
-
-    em.emit(A, EVENT_PROGRESS, "nia_indexing",
-            f"Checking if '{repo}' is already indexed...")
-
-    existing = nia_list_repos.sync(client=client, q=repo)
-
-    # Log everything we find for debugging
-    found_any = False
-    if isinstance(existing, list) and existing:
-        for item in existing:
-            item_repo = getattr(item, "repository", None) or getattr(item, "name", "?")
-            item_status = getattr(item, "status", "?")
-            item_id = getattr(item, "repository_id", None) or getattr(item, "id", "?")
-            em.emit(A, EVENT_LOG, "nia_indexing",
-                    f"  Found: repo={item_repo}  status={item_status}  id={item_id}")
-            found_any = True
-    elif hasattr(existing, "to_dict"):
-        em.emit(A, EVENT_LOG, "nia_indexing",
-                f"  List response (non-list): {existing}")
-    else:
-        em.emit(A, EVENT_LOG, "nia_indexing",
-                "  No existing repositories found")
-
-    if isinstance(existing, list):
-        for item in existing:
-            item_repo = getattr(item, "repository", None) or getattr(item, "name", "")
-            item_id = getattr(item, "repository_id", None) or getattr(item, "id", None)
-            item_status = getattr(item, "status", "")
-
-            if not _repo_matches(item_repo, repo):
-                continue
-
-            if force_reindex:
-                # Delete ALL matching repos regardless of status when force re-indexing
-                em.emit(A, EVENT_PROGRESS, "nia_reindex",
-                        f"Force re-index — deleting '{item_repo}' "
-                        f"(id={item_id}, status={item_status})")
-                _delete_nia_repo(client, item_id, em)
-            elif item_status in ("ready", "completed", "indexed"):
-                em.emit(A, EVENT_PROGRESS, "nia_indexing",
-                        f"Repository already indexed (id={item_id})")
-                return item_id
-
-    if not found_any and not force_reindex:
-        em.emit(A, EVENT_LOG, "nia_indexing",
-                "No existing index found — will create new one")
-
-    em.emit(A, EVENT_PROGRESS, "nia_indexing",
-            f"Sending indexing request for '{repo}' (branch={branch or 'default'})...")
-    body = RepositoryRequest(repository=repo)
-    if branch:
-        body.branch = branch
-
-    result = nia_index_repo.sync(client=client, body=body)
-
-    if result is None or hasattr(result, "detail"):
-        em.emit(A, EVENT_ERROR, "nia_indexing", f"Indexing request failed: {result}")
-        return None
-
-    repo_id = getattr(result, "project_id", None) or getattr(
-        result, "repository_id", None
-    )
-    if not repo_id:
-        em.emit(A, EVENT_ERROR, "nia_indexing", "No repository ID returned from indexing")
-        return None
-
-    em.emit(A, EVENT_PROGRESS, "nia_indexing",
-            f"Indexing started (id={repo_id}). Polling for completion...")
-    start_time = time.time()
-    while time.time() - start_time < INDEX_POLL_TIMEOUT:
-        status_resp = nia_repo_status.sync(repository_id=repo_id, client=client)
-        if status_resp and hasattr(status_resp, "status"):
-            status = status_resp.status
-            elapsed = int(time.time() - start_time)
-            if status in ("ready", "completed", "indexed"):
-                em.emit(A, EVENT_PROGRESS, "nia_indexing",
-                        f"Indexing complete! ({elapsed}s)")
-                return repo_id
-            elif status in ("failed", "error"):
-                err = getattr(status_resp, "error", "unknown")
-                em.emit(A, EVENT_ERROR, "nia_indexing",
-                        f"Indexing FAILED after {elapsed}s: {err}")
-                return None
-            else:
-                em.emit(A, EVENT_LOG, "nia_indexing",
-                        f"  ... status={status} ({elapsed}s elapsed)")
-        time.sleep(INDEX_POLL_INTERVAL)
-
-    em.emit(A, EVENT_ERROR, "nia_indexing",
-            f"Indexing timed out after {INDEX_POLL_TIMEOUT}s, proceeding anyway")
-    return repo_id
-
-
 # ═══════════════════════════════════════════════════════════════════
 #  STEP 2a: QUERY NIA FOR EVIDENCE
 # ═══════════════════════════════════════════════════════════════════
 
 def _nia_query_question(
     client: AuthenticatedClient,
-    repo_id: str,
+    repo_ref: str,
     question: str,
     question_idx: int,
     em: EventEmitter | None = None,
@@ -503,12 +421,15 @@ def _nia_query_question(
             "role": "user",
             "content": question,
         })],
-        repositories=[repo_id],
+        repositories=[repo_ref],
         include_sources=True,
         skip_llm=False,
     )
-
-    result = nia_query.sync(client=client, body=body)
+    try:
+        result = nia_query.sync(client=client, body=body)
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "querying_nia", f"Q{question_idx}: query failed: {e}")
+        return {"question": question, "answer": "(query failed)", "sources": []}
 
     if result is None:
         em.emit(A, EVENT_LOG, "querying_nia",
@@ -565,7 +486,7 @@ def _nia_query_question(
 
 def _nia_grep_pattern(
     client: AuthenticatedClient,
-    repo_id: str,
+    repo_ref: str,
     pattern: str,
     em: EventEmitter | None = None,
 ) -> dict:
@@ -581,7 +502,11 @@ def _nia_grep_pattern(
         group_by_file=True,
     )
 
-    result = nia_grep.sync(repository_id=repo_id, client=client, body=body)
+    try:
+        result = nia_grep.sync(repository_id=repo_ref, client=client, body=body)
+    except Exception as e:
+        em.emit(A, EVENT_LOG, "querying_nia", f"Grep failed for '{pattern}': {e}")
+        return {"pattern": pattern, "matches": []}
 
     if result is None:
         em.emit(A, EVENT_LOG, "querying_nia", "Grep: no results")
@@ -618,7 +543,7 @@ def _nia_grep_pattern(
 
 def _collect_evidence_nia(
     client: AuthenticatedClient,
-    repo_id: str,
+    repo_ref: str,
     questions: list[str],
     grep_patterns: list[str],
     em: EventEmitter | None = None,
@@ -632,11 +557,11 @@ def _collect_evidence_nia(
     evidence = []
 
     for i, question in enumerate(questions, 1):
-        ev = _nia_query_question(client, repo_id, question, i, em)
+        ev = _nia_query_question(client, repo_ref, question, i, em)
         evidence.append(ev)
 
     for pattern in grep_patterns:
-        grep_ev = _nia_grep_pattern(client, repo_id, pattern, em)
+        grep_ev = _nia_grep_pattern(client, repo_ref, pattern, em)
         matches = grep_ev["matches"]
         if matches:
             try:
@@ -663,14 +588,23 @@ def _collect_evidence_nia(
     return evidence
 
 
+def _normalize_repo_url(repo_url: str) -> str:
+    """Normalize shorthand GitHub URLs for clone operations."""
+    u = (repo_url or "").strip()
+    if u.startswith("github.com/"):
+        return "https://" + u
+    return u
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  STEP 2b: LOCAL EVIDENCE COLLECTION (fallback)
 # ═══════════════════════════════════════════════════════════════════
 
 def clone_repo(repo_url: str, dest: str, depth: int = 1) -> str:
     """Shallow-clone a repo into dest."""
+    normalized_url = _normalize_repo_url(repo_url)
     subprocess.run(
-        ["git", "clone", "--depth", str(depth), repo_url, dest],
+        ["git", "clone", "--depth", str(depth), normalized_url, dest],
         check=True, capture_output=True, text=True,
     )
     return dest
@@ -941,6 +875,7 @@ def search_codebase(
     repo_name: str = "",
     triage_result: dict | None = None,
     model: str | None = None,
+    num_questions: int = MAX_QUESTIONS,
     clone_dir: str | None = None,
     force_reindex: bool = False,
     emitter: EventEmitter | None = None,
@@ -954,8 +889,9 @@ def search_codebase(
         repo_name: Human-readable repo name (e.g. 'owner/repo').
         triage_result: Optional output from the triage agent.
         model: LLM model to use.
+        num_questions: Number of investigation questions to ask (1-10).
         clone_dir: Optional pre-existing clone directory.
-        force_reindex: If True, delete and re-index the repo on Nia.
+        force_reindex: Deprecated/no-op for Nia path (indexing is skipped).
         emitter: Optional event emitter for status updates.
 
     Returns:
@@ -981,7 +917,7 @@ def search_codebase(
             "STEP 1/3: Generating investigation questions")
 
     questions, grep_patterns = _generate_questions(
-        issue_title, issue_body, triage_result, model, em,
+        issue_title, issue_body, triage_result, model, num_questions, em,
     )
 
     if not questions:
@@ -1022,20 +958,16 @@ def search_codebase(
 
     if nia_client and github_repo:
         # ── Nia path ──────────────────────────────────────────────
-        em.emit(A, EVENT_PROGRESS, "nia_indexing",
+        em.emit(A, EVENT_PROGRESS, "collecting_evidence",
                 f"Using Nia for codebase search (repo: {github_repo})")
         if force_reindex:
-            em.emit(A, EVENT_PROGRESS, "nia_reindex",
-                    "Force re-index enabled — will delete stale index and re-index")
-        repo_id = _nia_index_repo(nia_client, github_repo, branch="main", force_reindex=force_reindex, em=em)
-
-        if repo_id:
-            evidence = _collect_evidence_nia(
-                nia_client, repo_id, questions, grep_patterns, em,
-            )
-        else:
-            em.emit(A, EVENT_ERROR, "nia_indexing", "Indexing failed — cannot query Nia")
-            evidence = []
+            em.emit(A, EVENT_LOG, "collecting_evidence",
+                    "force_reindex requested but ignored (indexing is disabled)")
+        em.emit(A, EVENT_PROGRESS, "collecting_evidence",
+                "Skipping all Nia indexing operations — querying directly")
+        evidence = _collect_evidence_nia(
+            nia_client, github_repo, questions, grep_patterns, em,
+        )
     else:
         # ── Local path ────────────────────────────────────────────
         tmp_dir = None

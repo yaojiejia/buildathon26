@@ -57,6 +57,12 @@ def call_llm(system: str, user_msg: str, model: str | None = None, max_tokens: i
         Raw text response (markdown fences stripped if present).
     """
     model = model or get_default_model()
+    provider = get_provider()
+
+    # Convenience for NVIDIA users: allow shorthand model names like
+    # "llama-3.1-405b-instruct" by auto-prefixing "meta/".
+    if provider == PROVIDER_NVIDIA and "/" not in model and not model.startswith("claude"):
+        model = f"meta/{model}"
 
     # Auto-detect provider from model name if not explicitly set
     if model.startswith("claude") or model.startswith("anthropic"):
@@ -65,7 +71,6 @@ def call_llm(system: str, user_msg: str, model: str | None = None, max_tokens: i
         raw = _call_nvidia(system, user_msg, model, max_tokens)
     else:
         # Fall back to configured provider
-        provider = get_provider()
         if provider == PROVIDER_NVIDIA:
             raw = _call_nvidia(system, user_msg, model, max_tokens)
         else:
@@ -140,4 +145,3 @@ def _call_nvidia(system: str, user_msg: str, model: str, max_tokens: int) -> str
     )
 
     return response.choices[0].message.content.strip()
-
