@@ -26,7 +26,7 @@ This app posts an issue summary to Slack when an issue is created, with one thre
 ## 4. Signing secret
 
 1. In the app: **Basic Information** → **App Credentials**.
-2. Copy **Signing Secret**.
+2. Copy **Signing Secret** (not "Client Secret"). Paste into `.env.local` with no extra spaces or newlines.
 
 ## 5. Environment variables
 
@@ -57,9 +57,9 @@ When an issue is created (e.g. after analysis completes on the Analyze page), th
   - **Short summary**
   - **Repo link**
 - Adds three buttons:
-  - **Investigate** – posts in thread: "Investigation started"
-  - **Assign Human** – posts in thread: "A human has been assigned"
-  - **Open in Cursor** – opens the repo (or `CURSOR_OPEN_URL` if set)
+  - **Investigate** – transition to `INVESTIGATING`; thread gets status update
+  - **Assign Human** – transition to `NEEDS_HUMAN`; thread gets status update
+  - **Open in Cursor** – generates a handoff artifact (issue title, summary, repo + Open in Cursor link) and posts it in the thread
 
 All follow-up replies use the same thread (thread per case).
 

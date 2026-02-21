@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import {
   verifySlackSignature,
-  postStatusInThread,
   postBlocksInThread,
+  postStatusUpdateInThread,
   buildHandoffArtifactBlocks,
   type HandoffContext,
 } from "@/lib/slack"
-import { transitionTo } from "@/lib/issue-state"
+import { transitionTo, getIssueCreatedAt } from "@/lib/issue-state"
 
 type SlackBlock = {
   type: string
@@ -87,20 +87,40 @@ export async function POST(request: Request) {
 
   const actionId = action.action_id
 
+  const postTimelineUpdate = async (
+    state: "INVESTIGATING" | "REPORT_READY" | "PR_OPENED" | "REVIEW_COMPLETED" | "NEEDS_HUMAN",
+    badge: string,
+    confidence: number | null = null
+  ) => {
+    transitionTo(channelId, messageTs, state)
+    const createdAt = getIssueCreatedAt(channelId, messageTs)
+    const elapsed =
+      createdAt != null ? Date.now() - createdAt : null
+    const r = await postStatusUpdateInThread(channelId, messageTs, {
+      statusBadge: badge,
+      confidenceScore: confidence,
+      timeElapsedMs: elapsed,
+    })
+    if (!r.ok) console.error("Slack status update failed:", r.error)
+  }
+
   const run = async () => {
     switch (actionId) {
-      case "investigate": {
-        transitionTo(channelId, messageTs, "INVESTIGATING")
-        const r = await postStatusInThread(channelId, messageTs, "INVESTIGATING")
-        if (!r.ok) console.error("Slack status post failed:", r.error)
+      case "investigate":
+        await postTimelineUpdate("INVESTIGATING", "🔍 Investigation started")
         break
-      }
-      case "assign_human": {
-        transitionTo(channelId, messageTs, "NEEDS_HUMAN")
-        const r2 = await postStatusInThread(channelId, messageTs, "NEEDS_HUMAN")
-        if (!r2.ok) console.error("Slack status post failed:", r2.error)
+      case "assign_human":
+        await postTimelineUpdate("NEEDS_HUMAN", "👤 Needs human")
         break
-      }
+      case "report_ready":
+        await postTimelineUpdate("REPORT_READY", "📋 Report ready", 85)
+        break
+      case "pr_opened":
+        await postTimelineUpdate("PR_OPENED", "🔀 PR opened", 90)
+        break
+      case "review_completed":
+        await postTimelineUpdate("REVIEW_COMPLETED", "✅ Review completed", 95)
+        break
       case "open_in_cursor": {
         const ctx = parseMessageContext(blocks) ?? {
           title: "Issue",
@@ -117,8 +137,15 @@ export async function POST(request: Request) {
         if (!r3.ok) console.error("Slack handoff post failed:", r3.error)
         break
       }
-      default:
-        await postStatusInThread(channelId, messageTs, "Action received.")
+      default: {
+        const createdAt = getIssueCreatedAt(channelId, messageTs)
+        const elapsed = createdAt != null ? Date.now() - createdAt : null
+        await postStatusUpdateInThread(channelId, messageTs, {
+          statusBadge: "Action received.",
+          confidenceScore: null,
+          timeElapsedMs: elapsed,
+        })
+      }
     }
   }
 

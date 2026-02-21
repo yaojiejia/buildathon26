@@ -48,22 +48,18 @@ const blocks = [
     type: "actions",
     block_id: "issue_actions",
     elements: [
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Investigate", emoji: true },
-        action_id: "investigate",
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Assign Human", emoji: true },
-        action_id: "assign_human",
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Open in Cursor", emoji: true },
-        action_id: "open_in_cursor",
-        url: cursorOpenUrl,
-      },
+      { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" },
+      { type: "button", text: { type: "plain_text", text: "Assign Human", emoji: true }, action_id: "assign_human" },
+      { type: "button", text: { type: "plain_text", text: "Open in Cursor", emoji: true }, action_id: "open_in_cursor", url: cursorOpenUrl },
+    ],
+  },
+  {
+    type: "actions",
+    block_id: "issue_actions_2",
+    elements: [
+      { type: "button", text: { type: "plain_text", text: "Report ready", emoji: true }, action_id: "report_ready" },
+      { type: "button", text: { type: "plain_text", text: "PR opened", emoji: true }, action_id: "pr_opened" },
+      { type: "button", text: { type: "plain_text", text: "Review completed", emoji: true }, action_id: "review_completed" },
     ],
   },
 ]
