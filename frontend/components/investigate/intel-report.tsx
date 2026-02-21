@@ -199,9 +199,9 @@ export function IntelReport() {
           <button
             onClick={handleExecute}
             className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold",
-              "bg-white text-black shadow-lg shadow-white/10",
-              "transition-all hover:bg-white/90 hover:shadow-white/15",
+              "flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium",
+              "bg-white/[0.06] text-foreground/90 border border-white/[0.1]",
+              "transition-all hover:bg-white/[0.1] hover:border-white/[0.15]",
               "active:scale-[0.98]"
             )}
           >
