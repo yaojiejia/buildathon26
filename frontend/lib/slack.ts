@@ -11,6 +11,7 @@ export type IssuePayload = {
   summary: string
   repoLink: string
   repoFullName?: string
+  investigateUrl?: string
 }
 
 function getSlackConfig() {
@@ -26,10 +27,23 @@ function getSlackConfig() {
  * Build Block Kit blocks for an issue: header, summary, repo link, action buttons.
  */
 export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>[] {
-  const { title, summary, repoLink } = payload
+  const { title, summary, repoLink, investigateUrl } = payload
   const cursorOpenUrl =
     process.env.CURSOR_OPEN_URL ||
     `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`
+
+  const investigateButton: Record<string, unknown> = investigateUrl
+    ? {
+        type: "button",
+        text: { type: "plain_text", text: "Investigate", emoji: true },
+        action_id: "investigate",
+        url: investigateUrl,
+      }
+    : {
+        type: "button",
+        text: { type: "plain_text", text: "Investigate", emoji: true },
+        action_id: "investigate",
+      }
 
   return [
     {
@@ -51,11 +65,7 @@ export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>
       type: "actions",
       block_id: "issue_actions",
       elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Investigate", emoji: true },
-          action_id: "investigate",
-        },
+        investigateButton,
         {
           type: "button",
           text: { type: "plain_text", text: "Assign Human", emoji: true },

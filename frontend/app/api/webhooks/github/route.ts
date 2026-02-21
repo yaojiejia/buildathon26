@@ -105,38 +105,39 @@ export async function POST(request: Request) {
       const repoLink = repo.html_url
       const repoFullName = repo.full_name ?? repoLink
 
-      const slackResult = await postIssueToSlack({
-        title,
-        summary,
-        repoLink,
-        repoFullName,
-      })
+      // Derive the public-facing base URL from forwarded headers (ngrok, etc.)
+      // so the Slack "Investigate" button links to the correct host.
+      const fwdProto = request.headers.get("x-forwarded-proto") ?? "http"
+      const fwdHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? new URL(request.url).host
+      const baseUrl = `${fwdProto}://${fwdHost}`
 
-      if (!slackResult.ok) {
-        return NextResponse.json(
-          { error: slackResult.error ?? "Slack post failed" },
-          { status: 502 }
-        )
-      }
-
+      // Create case in DB first so we can embed its URL in the Slack message.
+      let caseRecord: { id: string } | null = null
       try {
-        const caseRecord = await prisma.case.create({
+        caseRecord = await prisma.case.create({
           data: {
             githubIssueId: issueNumber,
             repo: repoFullName,
             title,
             body: body ?? undefined,
             state: "NEW",
-            slackChannelId: slackResult.channel ?? undefined,
-            slackThreadTs: slackResult.ts ?? undefined,
           },
         })
-        await recordInitialState(caseRecord.id)
         logWebhookEvent(event, payload, "case created: " + caseRecord.id)
+        try {
+          await recordInitialState(caseRecord.id)
+        } catch (auditErr) {
+          console.warn("[GitHub webhook] recordInitialState failed (non-fatal)", auditErr)
+        }
       } catch (dbError: unknown) {
         const code = (dbError as { code?: string })?.code
         if (code === "P2002") {
           logWebhookEvent(event, payload, "case already exists (duplicate)")
+          const existing = await prisma.case.findFirst({
+            where: { repo: repoFullName, githubIssueId: issueNumber },
+            select: { id: true },
+          })
+          caseRecord = existing
         } else {
           console.error("[GitHub webhook] DB create failed", dbError)
           return NextResponse.json(
@@ -146,12 +147,40 @@ export async function POST(request: Request) {
         }
       }
 
-      if (slackResult.channel && slackResult.ts) {
+      const investigateUrl = caseRecord
+        ? `${baseUrl}/case/${caseRecord.id}`
+        : undefined
+
+      const slackResult = await postIssueToSlack({
+        title,
+        summary,
+        repoLink,
+        repoFullName,
+        investigateUrl,
+      })
+
+      if (!slackResult.ok) {
+        return NextResponse.json(
+          { error: slackResult.error ?? "Slack post failed" },
+          { status: 502 }
+        )
+      }
+
+      // Store the Slack thread info back on the case record.
+      if (caseRecord && slackResult.channel && slackResult.ts) {
+        await prisma.case.update({
+          where: { id: caseRecord.id },
+          data: {
+            slackChannelId: slackResult.channel,
+            slackThreadTs: slackResult.ts,
+          },
+        })
         recordIssueCreated(slackResult.channel, slackResult.ts)
       }
 
       return NextResponse.json({
         ok: true,
+        caseId: caseRecord?.id,
         channel: slackResult.channel,
         thread_ts: slackResult.ts,
       })
