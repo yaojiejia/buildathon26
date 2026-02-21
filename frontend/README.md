@@ -1,28 +1,86 @@
-# Distributed Systems Agent - Frontend
+# Distributed Systems Agent — Frontend
 
-A Next.js frontend for the Distributed Systems Agent application.
+Next.js app: web UI, Slack integration, GitHub webhooks, and case state machine (Prisma + SQLite).
 
-## Tech Stack
+## Running the project (after cloning)
 
-- **Next.js 14** - React framework with App Router
-- **TypeScript** - Type safety
-- **Tailwind CSS** - Utility-first CSS framework
-- **shadcn/ui** - Modern UI component library built on Radix UI
-- **Lucide React** - Icon library
+### 1. Install dependencies
 
-## Getting Started
-
-1. Install dependencies:
 ```bash
+cd frontend
 npm install
 ```
 
-2. Run the development server:
+### 2. Environment variables
+
+- **`.env`** (required for DB) — Prisma reads this. Create it from the example:
+  ```bash
+  cp .env.example .env
+  ```
+  Default `DATABASE_URL="file:./dev.db"` is fine for local development.
+
+- **`.env.local`** (optional) — Slack and GitHub webhook secrets. Copy from example and fill in what you use:
+  ```bash
+  cp .env.example .env.local
+  ```
+  | Variable | Required for | Where to get it |
+  |----------|--------------|------------------|
+  | `SLACK_BOT_TOKEN` | Posting to Slack, button actions | Slack app → OAuth & Permissions → Bot User OAuth Token |
+  | `SLACK_CHANNEL_ID` | Posting to Slack | Channel ID from Slack (right‑click channel → Copy link) |
+  | `SLACK_SIGNING_SECRET` | Verifying Slack button clicks | Slack app → Basic Information → Signing Secret |
+  | `GITHUB_WEBHOOK_SECRET` | Receiving GitHub issue events | See [GitHub App / webhook setup](#github-app--webhook-setup) below |
+
+  You can run the app without these; Slack/GitHub features will fail until they’re set.
+
+#### GitHub App / webhook setup
+
+To have **new GitHub issues** create a case in the DB and post to Slack, GitHub must send webhooks to your app. Use either a **repository webhook** (one repo) or a **GitHub App** (multiple repos or app features).
+
+**Option A — Repository webhook (simplest for one repo)**
+
+1. In your repo: **Settings** → **Webhooks** → **Add webhook**.
+2. **Payload URL:** `https://<your-public-host>/api/webhooks/github`  
+   For local dev, expose your server (e.g. [ngrok](https://ngrok.com)) and use `https://<your-ngrok-subdomain>.ngrok.io/api/webhooks/github`.
+3. **Content type:** `application/json`.
+4. **Secret:** Generate a random string (e.g. `openssl rand -hex 32`). Put the **same value** in `GITHUB_WEBHOOK_SECRET` in `.env.local`.
+5. Under "Which events would you like to trigger this webhook?", choose **Let me select individual events** and check **Issues**. Save.
+
+**Option B — GitHub App (multiple repos or app-level features)**
+
+1. **GitHub** → **Settings** (or org settings) → **Developer settings** → **GitHub Apps** → **New GitHub App**.
+2. **Webhook URL:** `https://<your-public-host>/api/webhooks/github` (use ngrok for local dev as above).
+3. **Webhook secret:** Generate a random string; set the **same value** as `GITHUB_WEBHOOK_SECRET` in `.env.local`.
+4. Under "Permissions & events", subscribe to **Issues** (read + write if you want the app to act on issues). Save.
+5. **Install App** on the repo(s) you want. Events from those repos will POST to your webhook URL.
+
+The app only acts on **issues.opened** (creates case, posts to Slack). Other events (e.g. `pull_request`, `issue_comment`) are accepted and logged but not processed.
+
+### 3. Database
+
+```bash
+npx prisma generate
+npx prisma db push
+```
+
+This creates the SQLite DB and tables (e.g. `dev.db` in `frontend/prisma/`).
+
+### 4. Start the dev server
+
 ```bash
 npm run dev
 ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Tech stack
+
+- **Next.js 14** — App Router, API routes
+- **TypeScript** — Type safety
+- **Tailwind CSS** — Styling
+- **shadcn/ui** — UI components (Radix UI)
+- **Prisma** — SQLite for cases and state transitions
 
 ## Project Structure
 
@@ -38,12 +96,14 @@ frontend/
 └── public/          # Static assets
 ```
 
-## Available Scripts
+## Available scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
+- `npm run dev` — Start development server
+- `npm run build` — Build for production
+- `npm run start` — Start production server
+- `npm run lint` — Run ESLint
+- `npm run db:push` — Push Prisma schema to the database (create/update tables)
+- `npm run db:studio` — Open Prisma Studio to inspect/edit the DB
 
 ## UI Components
 
