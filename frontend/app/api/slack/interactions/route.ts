@@ -7,6 +7,8 @@ import {
   type HandoffContext,
 } from "@/lib/slack"
 import { transitionTo, getIssueCreatedAt } from "@/lib/issue-state"
+import { prisma } from "@/lib/db"
+import { transitionCase } from "@/lib/case-state-machine"
 
 type SlackBlock = {
   type: string
@@ -87,6 +89,15 @@ export async function POST(request: Request) {
 
   const actionId = action.action_id
 
+  /** Map Slack button action to DB Case state (for state machine). */
+  const actionToDbState: Record<string, string> = {
+    investigate: "INVESTIGATING",
+    assign_human: "NEEDS_HUMAN",
+    report_ready: "REPORT_READY",
+    pr_opened: "PR_OPENED",
+    review_completed: "UNDER_REVIEW",
+  }
+
   const postTimelineUpdate = async (
     state: "INVESTIGATING" | "REPORT_READY" | "PR_OPENED" | "REVIEW_COMPLETED" | "NEEDS_HUMAN",
     badge: string,
@@ -102,6 +113,22 @@ export async function POST(request: Request) {
       timeElapsedMs: elapsed,
     })
     if (!r.ok) console.error("Slack status update failed:", r.error)
+
+    const dbState = actionToDbState[actionId]
+    if (dbState) {
+      const caseRecord = await prisma.case.findFirst({
+        where: { slackChannelId: channelId, slackThreadTs: messageTs },
+      })
+      if (caseRecord) {
+        const result = await transitionCase(caseRecord.id, dbState, {
+          source: "slack",
+          action: actionId,
+        })
+        if (!result.ok) {
+          console.warn("[interactions] DB state transition failed:", result.error)
+        }
+      }
+    }
   }
 
   const run = async () => {

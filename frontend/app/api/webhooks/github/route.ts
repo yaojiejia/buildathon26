@@ -3,6 +3,7 @@ import { verifyGitHubSignature } from "@/lib/github-webhook"
 import { postIssueToSlack } from "@/lib/slack"
 import { recordIssueCreated } from "@/lib/issue-state"
 import { prisma } from "@/lib/db"
+import { recordInitialState } from "@/lib/case-state-machine"
 
 const MAX_SUMMARY_LEN = 500
 
@@ -125,11 +126,12 @@ export async function POST(request: Request) {
             repo: repoFullName,
             title,
             body: body ?? undefined,
-            state: "OPEN",
+            state: "NEW",
             slackChannelId: slackResult.channel ?? undefined,
             slackThreadTs: slackResult.ts ?? undefined,
           },
         })
+        await recordInitialState(caseRecord.id)
         logWebhookEvent(event, payload, "case created: " + caseRecord.id)
       } catch (dbError: unknown) {
         const code = (dbError as { code?: string })?.code
