@@ -1,2 +1,5 @@
 anthropic==0.83.0
+langgraph==1.0.9
+gitpython==3.1.46
 python-dotenv==1.0.1
+nia-ai-py==0.1.0

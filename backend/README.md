@@ -1,83 +1,231 @@
-# Slack app setup
+# BugPilot — Backend Agents
 
-This app posts an issue summary to Slack when an issue is created, with one thread per case and working buttons.
+BugPilot is an AI-powered bug investigation pipeline. Given a GitHub issue, it automatically triages severity, searches the codebase for the root cause, and produces a structured investigation report with suspect files, line numbers, and reasoning.
 
-## 1. Create a Slack app
+## Architecture
 
-1. Go to [Slack API – Create app](https://api.slack.com/apps) → **Create New App** → **From scratch**.
-2. Name the app (e.g. "Issue Notifier") and pick a workspace.
+```
+┌─────────────────────────────────────────────────────────┐
+│                    LangGraph Pipeline                    │
+│                                                         │
+│  START → [Triage Agent] → [Codebase Search Agent] → END │
+│              │                     │                    │
+│              ▼                     ▼                    │
+│         Claude API            Claude API + Nia          │
+│                                                         │
+│  Event Emitter ─── streams status to consumer ─── ▶ UI  │
+└─────────────────────────────────────────────────────────┘
+```
 
-## 2. Bot token and permissions
+### Agents
 
-1. In the app: **OAuth & Permissions**.
-2. Under **Scopes** → **Bot Token Scopes**, add:
-   - `chat:write`
-   - `chat:write.public` (if you want to post without joining the channel)
-3. **Install to Workspace** and copy the **Bot User OAuth Token** (`xoxb-...`).
+| Agent | Purpose | Input | Output |
+|-------|---------|-------|--------|
+| **Triage Agent** | Classify severity, identify likely module, detect duplicates, generate summary | Issue title + body | `{ severity, likely_module, is_duplicate, summary }` |
+| **Codebase Search Agent** | Investigate codebase, find root cause files + line numbers | Issue + triage result + repo URL | `{ suspect_files[], reasoning, confidence }` |
 
-## 3. Interactivity (for buttons)
+### Codebase Search Workflow
 
-1. In the app: **Interactivity & Shortcuts** → turn **Interactivity** On.
-2. **Request URL**: your public base URL + `/api/slack/interactions`, e.g.:
-   - Production: `https://your-domain.com/api/slack/interactions`
-   - Local: use [ngrok](https://ngrok.com/) and set `https://your-ngrok-id.ngrok.io/api/slack/interactions`
-3. Save.
+1. **Claude generates questions** — 3-5 targeted investigation questions + grep patterns from the bug report
+2. **Nia collects evidence** — each question is sent to [Nia](https://app.trynia.ai) (or answered locally via Claude for local directories) to find concrete code evidence
+3. **Claude generates report** — all evidence is analyzed to produce the final investigation report with suspect files, line numbers, and reasoning
 
-## 4. Signing secret
+### Event System
 
-1. In the app: **Basic Information** → **App Credentials**.
-2. Copy **Signing Secret**.
+Both agents emit structured events as they work, enabling real-time status updates for any consumer (CLI, WebSocket, frontend):
 
-## 5. Environment variables
+```json
+{
+  "agent": "triage | codebase_search | pipeline",
+  "type": "status | progress | result | error | log",
+  "step": "calling_claude | nia_indexing | collecting_evidence | ...",
+  "message": "Human-readable status message",
+  "data": {},
+  "timestamp": 1234567890.123
+}
+```
 
-In the **frontend** project, copy `.env.example` to `.env.local` and set:
+Three emitter implementations:
+- `ConsoleEventEmitter` — colored terminal output (default)
+- `CallbackEventEmitter` — forwards events to a callback (for WebSocket/SSE)
+- `NoOpEventEmitter` — silent
+
+## Project Structure
+
+```
+buildathon26/
+├── business_case/                # Full-stack FastAPI app (test target)
+│   ├── main.py                   # Entry point — uvicorn + seed data
+│   ├── models.py                 # SQLAlchemy models (Product, Customer, Order, …)
+│   ├── services.py               # Business logic (discount calc, refunds) ← 2 bugs
+│   ├── routes.py                 # FastAPI REST endpoints
+│   ├── requirements.txt          # fastapi, uvicorn, sqlalchemy, pydantic
+│   └── templates/
+│       └── index.html            # Simple UI
+├── backend/
+│   ├── .env                      # API keys (ANTHROPIC_API_KEY, NIA_API_KEY)
+│   ├── README.md                 # This file
+│   └── agents/
+│       ├── requirements.txt      # Python dependencies
+│       ├── events.py             # Event emitter system
+│       ├── triage_agent.py       # Triage Agent (Claude)
+│       ├── codebase_search_agent.py  # Codebase Search Agent (Claude + Nia)
+│       ├── pipeline.py           # LangGraph pipeline orchestration
+│       └── example/
+│           ├── run_pipeline.py   # CLI runner with test scenarios
+│           └── last_report.json  # Most recent report output
+```
+
+## Setup
+
+### 1. Create virtual environment
 
 ```bash
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_CHANNEL_ID=C0123456789    # channel ID (right‑click channel → View channel details)
-SLACK_SIGNING_SECRET=your-signing-secret
+cd backend/agents
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Get the channel ID: open the channel in Slack → right‑click → **View channel details** → copy the ID at the bottom.
+### 2. Configure API keys
 
-## 6. Invite the bot
+Create `backend/.env`:
 
-In Slack, go to the channel and run:
-
+```bash
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+NIA_API_KEY=nk_your-nia-key-here        # optional — enables Nia for GitHub repos
 ```
-/invite @YourAppName
+
+- **`ANTHROPIC_API_KEY`** (required) — get from [console.anthropic.com](https://console.anthropic.com/)
+- **`NIA_API_KEY`** (optional) — get from [app.trynia.ai](https://app.trynia.ai/home). Enables codebase intelligence for GitHub repos. Without it, local file search + Claude is used as fallback.
+
+### 3. (Optional) Run the business_case app
+
+```bash
+cd business_case
+pip install -r requirements.txt
+python main.py
+# → http://localhost:8000
 ```
 
-## Message and buttons
+## Usage
 
-When an issue is created (e.g. after analysis completes on the Analyze page), the app:
+### Run with the business_case app (local)
 
-- Posts one message per issue (thread root) with:
-  - **Issue title**
-  - **Short summary**
-  - **Repo link**
-- Adds three buttons:
-  - **Investigate** – posts in thread: "Investigation started"
-  - **Assign Human** – posts in thread: "A human has been assigned"
-  - **Open in Cursor** – opens the repo (or `CURSOR_OPEN_URL` if set)
+```bash
+cd backend/agents
+source venv/bin/activate
+python example/run_pipeline.py
+```
 
-All follow-up replies use the same thread (thread per case).
+This runs against the `business_case/` FastAPI app using the default `both_bugs` scenario.
 
-## API
+### Run against a GitHub repo (with Nia)
 
-- **POST `/api/issues`**  
-  Body: `{ "title", "summary", "repoLink" }`  
-  Creates the Slack thread with the issue summary and buttons.
+```bash
+python example/run_pipeline.py \
+  --scenario discount_stacking \
+  --repo-url "https://github.com/yaojiejia/buildathon_example" \
+  --repo-name "yaojiejia/buildathon_example"
+```
 
-- **POST `/api/slack/interactions`**  
-  Called by Slack when a button is clicked; verifies signature and posts the reply in the thread.
+If `NIA_API_KEY` is set, Nia will index the repo and answer investigation questions with full codebase context.
 
-## Testing
+### Custom issue
 
-**Post issue (no server):** from `frontend/` run  
-`node scripts/post-issue-to-slack.mjs "Title" "Summary" "https://github.com/owner/repo"`
+```bash
+python example/run_pipeline.py \
+  --title "Login crashes on mobile" \
+  --body "Blank page on iOS Safari when tapping login button" \
+  --repo-url "https://github.com/your-org/your-repo" \
+  --repo-name "your-org/your-repo"
+```
 
-**Post via API:** with server running,  
-`curl -X POST http://localhost:3000/api/issues -H "Content-Type: application/json" -d '{"title":"Test","summary":"Summary","repoLink":"https://github.com/x/y"}'`
+### Available test scenarios
 
-**Buttons:** run `npm run dev` and ngrok, set Interactivity URL in Slack, then click Investigate / Assign Human (replies in thread) and Open in Cursor (opens repo).
+```bash
+python example/run_pipeline.py --list-scenarios
+```
+
+| Scenario | Description |
+|----------|-------------|
+| `discount_stacking` | Loyalty + promo code applied together instead of picking the larger one |
+| `refund_wrong_amount` | Refund uses current product price instead of price-at-purchase |
+| `both_bugs` | Both business logic bugs combined (default) |
+
+### CLI flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--scenario` | `both_bugs` | Built-in test scenario |
+| `--title` | *(from scenario)* | Custom issue title |
+| `--body` | *(from scenario)* | Custom issue body |
+| `--repo-url` | *(local business_case)* | GitHub repo URL |
+| `--repo-name` | `shopeasy/order-mgmt` | Human-readable repo name |
+| `--model` | `claude-sonnet-4-20250514` | Claude model to use |
+
+## The Two Business Logic Bugs
+
+The `business_case/services.py` file contains two deliberate business logic bugs:
+
+### Bug 1 — Discount Stacking (`calculate_discount`)
+The docstring says *"apply whichever discount is LARGER (not both)"*, but the code applies the loyalty discount first and then the promo code discount on the already-reduced amount. Both discounts stack.
+
+### Bug 2 — Refund Wrong Amount (`process_refund`)
+The docstring says *"refund amount should be the TOTAL that the customer actually paid"*, but the code recalculates the refund by looking up each product's **current** price instead of using `order.total` or `item.price_at_purchase`. If prices change, the refund is wrong.
+
+## Output
+
+The pipeline produces a JSON report with three sections:
+
+```json
+{
+  "issue": {
+    "title": "Multiple business logic issues in order and refund system",
+    "body": "...",
+    "repo": "shopeasy/order-mgmt"
+  },
+  "triage": {
+    "severity": "high",
+    "likely_module": "services",
+    "is_duplicate": false,
+    "summary": "Two business logic bugs in discount calculation and refund processing..."
+  },
+  "investigation": {
+    "suspect_files": [
+      {
+        "file_path": "services.py",
+        "why_relevant": "Contains both bugs in calculate_discount and process_refund",
+        "lines_referenced": [48, 49, 50, 51, 52, 158, 159, 160],
+        "snippet": "..."
+      }
+    ],
+    "reasoning": "...",
+    "confidence": "high"
+  }
+}
+```
+
+## Frontend Integration
+
+When a frontend is ready, swap the event emitter to push real-time status updates:
+
+```python
+from events import CallbackEventEmitter
+
+def send_to_frontend(event: dict):
+    # e.g. WebSocket, SSE, or queue
+    websocket.send(json.dumps(event))
+
+emitter = CallbackEventEmitter(send_to_frontend)
+
+pipeline.invoke({
+    "issue_title": "...",
+    "issue_body": "...",
+    "repo_url": "https://github.com/...",
+    "repo_name": "owner/repo",
+    "emitter": emitter,
+})
+```
+
+The frontend receives structured events for each agent step — triage starting, Claude calling, Nia indexing, evidence collection, report generation, etc.
