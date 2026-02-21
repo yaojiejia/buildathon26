@@ -21,6 +21,7 @@ from events import (
     EVENT_RESULT,
     EVENT_ERROR,
     EVENT_LOG,
+    EVENT_SUMMARY,
 )
 
 
@@ -185,6 +186,15 @@ def triage_issue(
 
     em.emit(A, EVENT_RESULT, "complete",
             "Triage complete", {"triage_result": result})
+
+    # ── Summary for frontend ─────────────────────────────────────
+    em.emit(A, EVENT_SUMMARY, "summary",
+            "Triage Summary", {
+                "severity": result["severity"].upper(),
+                "likely_module": result["likely_module"],
+                "is_duplicate": "Yes" if result["is_duplicate"] else "No",
+                "findings": [result["summary"]],
+            })
 
     em.emit(A, EVENT_STATUS, "complete",
             "═" * 58)
