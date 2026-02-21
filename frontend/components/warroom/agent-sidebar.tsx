@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Circle,
+  ChevronRight,
 } from "lucide-react"
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -55,7 +56,7 @@ function StatusBadge({ status }: { status: AgentState["status"] }) {
   }
 }
 
-function AgentCard({ agentId }: { agentId: AgentId }) {
+function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: boolean }) {
   const { state, selectAgent } = useEngine()
   const agent = state.agents[agentId]
   const meta = agentMeta[agentId]
@@ -63,46 +64,81 @@ function AgentCard({ agentId }: { agentId: AgentId }) {
   const Icon = iconMap[meta.icon]
 
   const eventCount = agent.events.length
+  const latestEvent = agent.events[agent.events.length - 1]
+
+  // Toggle: click selected agent again → deselect
+  const handleClick = () => {
+    selectAgent(isSelected ? null : agentId)
+  }
 
   return (
     <button
-      onClick={() => selectAgent(agentId)}
+      onClick={handleClick}
       className={cn(
-        "w-full text-left rounded-lg border p-3 transition-all duration-200",
+        "w-full text-left rounded-lg border transition-all duration-200",
         "hover:bg-white/[0.03] cursor-pointer",
         isSelected
           ? "border-white/20 bg-white/[0.05] shadow-[0_0_15px_rgba(255,255,255,0.03)]"
-          : "border-white/[0.06] bg-transparent"
+          : "border-white/[0.06] bg-transparent",
+        isExpanded ? "p-4" : "p-3"
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2.5">
           <div
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-md",
-              "bg-white/[0.05] border border-white/[0.06]"
+              "flex items-center justify-center rounded-md",
+              "bg-white/[0.05] border border-white/[0.06]",
+              isExpanded ? "h-10 w-10" : "h-8 w-8"
             )}
           >
-            {Icon && <Icon className={cn("h-4 w-4", meta.color)} />}
+            {Icon && <Icon className={cn(isExpanded ? "h-5 w-5" : "h-4 w-4", meta.color)} />}
           </div>
           <div>
-            <div className="text-sm font-medium text-foreground/90">
+            <div className={cn(
+              "font-medium text-foreground/90",
+              isExpanded ? "text-base" : "text-sm"
+            )}>
               {meta.name}
             </div>
             <StatusBadge status={agent.status} />
           </div>
         </div>
 
-        {eventCount > 0 && (
-          <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-white/[0.08] px-1.5 text-[10px] font-medium text-muted-foreground">
-            {eventCount}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {eventCount > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white/[0.08] px-1.5 text-[10px] font-medium text-muted-foreground">
+              {eventCount}
+            </span>
+          )}
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 text-muted-foreground/40 transition-transform duration-200",
+              isSelected && "rotate-90 text-muted-foreground/70"
+            )}
+          />
+        </div>
       </div>
 
-      {/* Mini progress bar */}
+      {/* Description — visible when expanded */}
+      {isExpanded && (
+        <p className="mt-2 text-xs text-muted-foreground/60 leading-relaxed">
+          {meta.description}
+        </p>
+      )}
+
+      {/* Latest event preview — visible when expanded and there are events */}
+      {isExpanded && latestEvent && (
+        <div className="mt-3 rounded-md border border-white/[0.04] bg-black/20 px-3 py-2">
+          <p className="text-[11px] text-muted-foreground leading-relaxed truncate">
+            {latestEvent.message}
+          </p>
+        </div>
+      )}
+
+      {/* Progress bar */}
       {agent.status === "running" && (
-        <div className="mt-2.5 h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]">
+        <div className={cn("h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]", isExpanded ? "mt-3" : "mt-2.5")}>
           <div
             className={cn(
               "h-full rounded-full transition-all duration-500",
@@ -121,7 +157,7 @@ function AgentCard({ agentId }: { agentId: AgentId }) {
         </div>
       )}
       {agent.status === "done" && (
-        <div className="mt-2.5 h-[2px] w-full rounded-full bg-emerald-400/30" />
+        <div className={cn("h-[2px] w-full rounded-full bg-emerald-400/30", isExpanded ? "mt-3" : "mt-2.5")} />
       )}
     </button>
   )
@@ -130,6 +166,9 @@ function AgentCard({ agentId }: { agentId: AgentId }) {
 export function AgentSidebar() {
   const { state } = useEngine()
   const agentIds: AgentId[] = ["logs", "codebase", "docs", "repro"]
+
+  // Expanded = no agent selected (panel is wide)
+  const isExpanded = state.selectedAgent === null
 
   return (
     <div className="flex h-full flex-col">
@@ -141,9 +180,9 @@ export function AgentSidebar() {
       </div>
 
       {/* Agent list */}
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+      <div className={cn("flex-1 overflow-y-auto", isExpanded ? "space-y-3 p-4" : "space-y-2 p-3")}>
         {agentIds.map((id) => (
-          <AgentCard key={id} agentId={id} />
+          <AgentCard key={id} agentId={id} isExpanded={isExpanded} />
         ))}
       </div>
 

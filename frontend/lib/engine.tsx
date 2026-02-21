@@ -61,7 +61,7 @@ function reducer(state: InvestigationState, action: Action): InvestigationState 
       return {
         ...initialState,
         status: "running",
-        selectedAgent: "logs",
+        selectedAgent: null,
         agents: {
           logs: { ...makeInitialAgentState("logs"), status: "running" },
           codebase: { ...makeInitialAgentState("codebase"), status: "running" },

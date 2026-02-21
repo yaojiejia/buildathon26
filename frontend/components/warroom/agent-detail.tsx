@@ -18,6 +18,7 @@ import {
   Code2,
   BookOpen,
   FlaskConical,
+  X,
 } from "lucide-react"
 
 const agentIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -111,7 +112,7 @@ function EventRow({ event, isNew }: { event: AgentEvent; isNew: boolean }) {
 }
 
 export function AgentDetail() {
-  const { state } = useEngine()
+  const { state, selectAgent } = useEngine()
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevEventCount = useRef(0)
 
@@ -133,15 +134,11 @@ export function AgentDetail() {
   }, [currentEventCount])
 
   if (!selectedId || !agent || !meta) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground/50">
-        <p className="text-sm">Select an agent to view its activity</p>
-      </div>
-    )
+    return null
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col border-r border-white/[0.06]">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-white/[0.06] px-5 py-3">
         <div
@@ -152,16 +149,19 @@ export function AgentDetail() {
         >
           {Icon && <Icon className={cn("h-4 w-4", meta.color)} />}
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h2 className="text-sm font-semibold text-foreground/90">
             {meta.name}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              Thinking Process
+            </span>
           </h2>
-          <p className="text-xs text-muted-foreground">{meta.description}</p>
+          <p className="text-xs text-muted-foreground truncate">{meta.description}</p>
         </div>
 
         {/* Live indicator */}
         {agent.status === "running" && (
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
@@ -169,6 +169,14 @@ export function AgentDetail() {
             <span className="text-xs font-medium text-red-400">LIVE</span>
           </div>
         )}
+
+        {/* Close button */}
+        <button
+          onClick={() => selectAgent(null)}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-white/[0.05] hover:text-muted-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Event stream */}
@@ -177,8 +185,8 @@ export function AgentDetail() {
           <div className="flex h-32 items-center justify-center">
             <div className="flex items-center gap-2 text-sm text-muted-foreground/50">
               <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/20" />
-              <div className="animation-delay-200 h-1.5 w-1.5 animate-pulse rounded-full bg-white/20" />
-              <div className="animation-delay-400 h-1.5 w-1.5 animate-pulse rounded-full bg-white/20" />
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/20" style={{ animationDelay: "200ms" }} />
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/20" style={{ animationDelay: "400ms" }} />
               <span className="ml-1">Initializing…</span>
             </div>
           </div>
