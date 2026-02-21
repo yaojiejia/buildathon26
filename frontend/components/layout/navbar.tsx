@@ -1,121 +1,98 @@
-'use client';
-import React from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { MenuToggleIcon } from '@/components/ui/menu-toggle-icon';
-import { useScroll } from '@/components/ui/use-scroll';
+"use client"
 
-const links = [
-	{ label: 'Home', href: '/' },
-	{ label: 'Dashboard', href: '/dashboard' },
-	{ label: 'Analyze', href: '/analyze' },
-];
+import { useEngine } from "@/lib/engine"
+import { bugReport } from "@/lib/agent-data"
+import { cn } from "@/lib/utils"
+import {
+  Bug,
+  RotateCcw,
+  Github,
+  AlertCircle,
+} from "lucide-react"
 
 export function Navbar() {
-	const [open, setOpen] = React.useState(false);
-	const scrolled = useScroll(10);
-	const pathname = usePathname();
+  const { state, startInvestigation, resetInvestigation } = useEngine()
 
-	React.useEffect(() => {
-		if (open) {
-			document.body.style.overflow = 'hidden';
-		} else {
-			document.body.style.overflow = '';
-		}
-		return () => {
-			document.body.style.overflow = '';
-		};
-	}, [open]);
+  return (
+    <header className="flex h-14 items-center justify-between border-b border-white/[0.06] bg-black/40 px-5 backdrop-blur-sm">
+      {/* Logo */}
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] border border-white/[0.08]">
+          <Bug className="h-4 w-4 text-red-400" />
+        </div>
+        <span className="text-sm font-bold tracking-tight text-foreground/90">
+          BugPilot
+        </span>
 
-	return (
-		<header
-			className={cn(
-				'fixed top-0 left-0 right-0 z-[60] mx-auto w-full max-w-5xl border-b border-transparent md:rounded-md md:border md:transition-all md:ease-out',
-				{
-					'bg-background/95 supports-[backdrop-filter]:bg-background/50 border-border backdrop-blur-lg md:top-4 md:max-w-4xl md:shadow':
-						scrolled && !open,
-					'bg-background/90': open,
-				},
-			)}
-		>
-			<nav
-				className={cn(
-					'flex h-14 w-full items-center justify-between px-4 md:h-12 md:transition-all md:ease-out',
-					{
-						'md:px-2': scrolled,
-					},
-				)}
-			>
-				<Link href="/" className="text-lg font-bold tracking-tight">
-					ScaleAgent
-				</Link>
+        {state.status !== "idle" && (
+          <>
+            <div className="mx-2 h-4 w-px bg-white/[0.08]" />
+            <div className="flex items-center gap-2">
+              <Github className="h-3.5 w-3.5 text-muted-foreground/60" />
+              <span className="text-xs text-muted-foreground">
+                {bugReport.repo}
+              </span>
+              <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">
+                {bugReport.severity.toUpperCase()}
+              </span>
+              <span className="text-xs text-muted-foreground/70">
+                #{bugReport.id}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
 
-				<div className="hidden items-center gap-2 md:flex">
-					{links.map((link) => (
-						<Link
-							key={link.href}
-							href={link.href}
-							className={cn(
-								buttonVariants({ variant: 'ghost' }),
-								pathname === link.href && 'bg-accent'
-							)}
-						>
-							{link.label}
-						</Link>
-					))}
-					<Button variant="outline" asChild>
-						<Link href="/dashboard">Sign In</Link>
-					</Button>
-					<Button asChild>
-						<Link href="/analyze">Get Started</Link>
-					</Button>
-				</div>
+      {/* Controls */}
+      <div className="flex items-center gap-2">
+        {state.status === "idle" && (
+          <button
+            onClick={startInvestigation}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold",
+              "bg-red-500 text-white shadow-lg shadow-red-500/20",
+              "transition-all hover:bg-red-400 hover:shadow-red-500/30",
+              "active:scale-[0.97]"
+            )}
+          >
+            <AlertCircle className="h-4 w-4" />
+            Investigate
+          </button>
+        )}
 
-				<Button size="icon" variant="outline" onClick={() => setOpen(!open)} className="md:hidden">
-					<MenuToggleIcon open={open} className="size-5" duration={300} />
-				</Button>
-			</nav>
+        {state.status === "running" && (
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            <span className="text-xs font-medium text-red-400">
+              Investigation in progress
+            </span>
+          </div>
+        )}
 
-			<div
-				className={cn(
-					'bg-background/90 fixed top-14 right-0 bottom-0 left-0 z-50 flex flex-col overflow-hidden border-y md:hidden',
-					open ? 'block' : 'hidden',
-				)}
-			>
-				<div
-					data-slot={open ? 'open' : 'closed'}
-					className={cn(
-						'data-[slot=open]:animate-in data-[slot=open]:zoom-in-95 data-[slot=closed]:animate-out data-[slot=closed]:zoom-out-95 ease-out',
-						'flex h-full w-full flex-col justify-between gap-y-2 p-4',
-					)}
-				>
-					<div className="grid gap-y-2">
-						{links.map((link) => (
-							<Link
-								key={link.href}
-								href={link.href}
-								className={cn(
-									buttonVariants({ variant: 'ghost', className: 'justify-start' }),
-									pathname === link.href && 'bg-accent'
-								)}
-								onClick={() => setOpen(false)}
-							>
-								{link.label}
-							</Link>
-						))}
-					</div>
-					<div className="flex flex-col gap-2">
-						<Button variant="outline" className="w-full" asChild>
-							<Link href="/dashboard" onClick={() => setOpen(false)}>Sign In</Link>
-						</Button>
-						<Button className="w-full" asChild>
-							<Link href="/analyze" onClick={() => setOpen(false)}>Get Started</Link>
-						</Button>
-					</div>
-				</div>
-			</div>
-		</header>
-	);
+        {state.status === "complete" && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-emerald-400">
+              ✓ Investigation complete
+            </span>
+          </div>
+        )}
+
+        {state.status !== "idle" && (
+          <button
+            onClick={resetInvestigation}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border border-white/[0.08] px-3 py-2 text-xs font-medium",
+              "text-muted-foreground transition-all hover:bg-white/[0.04] hover:text-foreground/80"
+            )}
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+        )}
+      </div>
+    </header>
+  )
 }
