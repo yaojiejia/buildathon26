@@ -72,6 +72,30 @@ All follow-up replies use the same thread (thread per case).
 - **POST `/api/slack/interactions`**  
   Called by Slack when a button is clicked; verifies signature and posts the reply in the thread.
 
+## GitHub App & Webhook (TICKET-1.1)
+
+Create a [GitHub App](https://github.com/settings/apps/new) (or use repo webhook with same events).
+
+**Permissions:**
+- **Issues:** Read
+- **Pull requests:** Read & Write
+- **Contents:** Read & Write (for PR only)
+- **Checks:** Read
+
+**Webhook:**
+- **URL:** `https://YOUR_HOST/api/webhooks/github`
+- **Secret:** set a value and add it to `.env.local` as `GITHUB_WEBHOOK_SECRET`
+- **Events:** issues, pull_request, issue_comment, check_run, workflow_run
+
+**Behavior:**
+- Signature verified via `X-Hub-Signature-256`.
+- Every event is logged (event type, action, repo, issue number when present).
+- **issues.opened:** creates a row in the `Case` table (SQLite) and posts to Slack. Other events are acknowledged and logged.
+
+**DB:** Set `DATABASE_URL="file:./dev.db"` in `.env.local`, then run `npm run db:push` in `frontend/` to create the DB. New GitHub issue → record stored in DB.
+
+---
+
 ## Testing
 
 **Post issue (no server):** from `frontend/` run  

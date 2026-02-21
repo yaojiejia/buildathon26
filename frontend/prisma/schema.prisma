@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Case {
+  id              String   @id @default(cuid())
+  githubIssueId   Int
+  repo            String
+  title           String
+  body            String?
+  state           String   @default("OPEN")
+  slackChannelId  String?
+  slackThreadTs   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([repo, githubIssueId])
+}
