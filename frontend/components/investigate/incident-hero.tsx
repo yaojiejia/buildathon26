@@ -102,7 +102,7 @@ export function IncidentHero() {
             <div className="my-6 h-px bg-white/[0.06]" />
 
             {/* AI Summary */}
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 transition-shadow duration-200 hover:shadow-[0_0_20px_rgba(34,211,238,0.15)]">
               <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Zap className="h-3.5 w-3.5 text-cyan-400" />
                 AI SUMMARY
