@@ -1,14 +1,18 @@
 "use client"
 
 import { useEngine } from "@/lib/engine"
-import { AgentId, AgentState } from "@/lib/types"
-import { agentMeta } from "@/lib/agent-data"
+import { AgentId, AgentState, ALL_AGENT_IDS } from "@/lib/types"
+import { agentMeta, allAgentEvents } from "@/lib/agent-data"
 import { cn } from "@/lib/utils"
 import {
-  ScrollText,
-  Code2,
+  Search,
   BookOpen,
-  FlaskConical,
+  ScrollText,
+  Brain,
+  Wrench,
+  Activity,
+  Rabbit,
+  MessageSquareReply,
   Loader2,
   CheckCircle2,
   AlertTriangle,
@@ -17,10 +21,14 @@ import {
 } from "lucide-react"
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  ScrollText,
-  Code2,
+  Search,
   BookOpen,
-  FlaskConical,
+  ScrollText,
+  Brain,
+  Wrench,
+  Activity,
+  Rabbit,
+  MessageSquareReply,
 }
 
 function StatusBadge({ status }: { status: AgentState["status"] }) {
@@ -64,9 +72,9 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
   const Icon = iconMap[meta.icon]
 
   const eventCount = agent.events.length
+  const totalEvents = allAgentEvents[agentId].length
   const latestEvent = agent.events[agent.events.length - 1]
 
-  // Toggle: click selected agent again → deselect
   const handleClick = () => {
     selectAgent(isSelected ? null : agentId)
   }
@@ -84,7 +92,7 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <div
             className={cn(
               "flex items-center justify-center rounded-md",
@@ -97,7 +105,7 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
           <div>
             <div className={cn(
               "font-medium text-foreground/90",
-              isExpanded ? "text-base" : "text-sm"
+              isExpanded ? "text-sm" : "text-sm"
             )}>
               {meta.name}
             </div>
@@ -120,44 +128,30 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
         </div>
       </div>
 
-      {/* Description — visible when expanded */}
       {isExpanded && (
-        <p className="mt-2 text-xs text-muted-foreground/60 leading-relaxed">
+        <p className="mt-1.5 text-xs text-muted-foreground/50 leading-relaxed">
           {meta.description}
         </p>
       )}
 
-      {/* Latest event preview — visible when expanded and there are events */}
       {isExpanded && latestEvent && (
-        <div className="mt-3 rounded-md border border-white/[0.04] bg-black/20 px-3 py-2">
-          <p className="text-[11px] text-muted-foreground leading-relaxed truncate">
+        <div className="mt-2.5 rounded-md border border-white/[0.04] bg-black/20 px-3 py-2">
+          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-1">
             {latestEvent.message}
           </p>
         </div>
       )}
 
-      {/* Progress bar */}
       {agent.status === "running" && (
-        <div className={cn("h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]", isExpanded ? "mt-3" : "mt-2.5")}>
+        <div className={cn("h-[2px] w-full overflow-hidden rounded-full bg-white/[0.06]", isExpanded ? "mt-2.5" : "mt-2")}>
           <div
-            className={cn(
-              "h-full rounded-full transition-all duration-500",
-              agentId === "logs" && "bg-amber-400/60",
-              agentId === "codebase" && "bg-blue-400/60",
-              agentId === "docs" && "bg-emerald-400/60",
-              agentId === "repro" && "bg-purple-400/60"
-            )}
-            style={{
-              width: `${Math.min(
-                (eventCount / (agentId === "repro" ? 15 : 13)) * 100,
-                95
-              )}%`,
-            }}
+            className={cn("h-full rounded-full transition-all duration-500", meta.color.replace("text-", "bg-").replace("400", "400/60"))}
+            style={{ width: `${Math.min((eventCount / totalEvents) * 100, 95)}%` }}
           />
         </div>
       )}
       {agent.status === "done" && (
-        <div className={cn("h-[2px] w-full rounded-full bg-emerald-400/30", isExpanded ? "mt-3" : "mt-2.5")} />
+        <div className={cn("h-[2px] w-full rounded-full bg-emerald-400/30", isExpanded ? "mt-2.5" : "mt-2")} />
       )}
     </button>
   )
@@ -165,9 +159,7 @@ function AgentCard({ agentId, isExpanded }: { agentId: AgentId; isExpanded: bool
 
 export function AgentSidebar() {
   const { state } = useEngine()
-  const agentIds: AgentId[] = ["logs", "codebase", "docs", "repro"]
 
-  // Expanded = no agent selected (panel is wide)
   const isExpanded = state.selectedAgent === null
 
   return (
@@ -179,11 +171,19 @@ export function AgentSidebar() {
         </h2>
       </div>
 
-      {/* Agent list */}
-      <div className={cn("flex-1 overflow-y-auto", isExpanded ? "space-y-3 p-4" : "space-y-2 p-3")}>
-        {agentIds.map((id) => (
-          <AgentCard key={id} agentId={id} isExpanded={isExpanded} />
-        ))}
+      {/* Agent rows — centered when expanded */}
+      <div className={cn(
+        "flex-1 overflow-y-auto",
+        isExpanded ? "px-6 py-4" : "p-3"
+      )}>
+        <div className={cn(
+          "w-full mx-auto",
+          isExpanded ? "max-w-xl space-y-2.5" : "space-y-1.5"
+        )}>
+          {ALL_AGENT_IDS.map((id) => (
+            <AgentCard key={id} agentId={id} isExpanded={isExpanded} />
+          ))}
+        </div>
       </div>
 
       {/* Investigation status footer */}

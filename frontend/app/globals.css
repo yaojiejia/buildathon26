@@ -35,21 +35,34 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-inter), system-ui, sans-serif;
   }
-  code, pre {
-    font-family: var(--font-mono), 'JetBrains Mono', monospace;
+  code,
+  pre {
+    font-family: var(--font-mono), "JetBrains Mono", monospace;
   }
 }
 
 /* Dot grid background */
 .bg-grid {
-  background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px
+  );
   background-size: 32px 32px;
 }
 
 /* Radial fade mask */
 .mask-radial {
-  mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black 40%, transparent 100%);
+  mask-image: radial-gradient(
+    ellipse 70% 50% at 50% 50%,
+    black 40%,
+    transparent 100%
+  );
+  -webkit-mask-image: radial-gradient(
+    ellipse 70% 50% at 50% 50%,
+    black 40%,
+    transparent 100%
+  );
 }
 
 /* Event row entry animation */
@@ -70,15 +83,30 @@
 
 /* Pulse animation for live indicators */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
 
 /* Selection */
 ::selection {

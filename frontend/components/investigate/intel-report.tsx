@@ -15,9 +15,13 @@ import {
   Loader2,
   ArrowRight,
   ScrollText,
-  Code2,
+  Search,
   BookOpen,
-  FlaskConical,
+  Brain,
+  Wrench,
+  Activity,
+  Rabbit,
+  MessageSquareReply,
 } from "lucide-react"
 
 type ExecutionStatus = "idle" | "running" | "done"
@@ -27,7 +31,6 @@ export function IntelReport() {
 
   const handleExecute = () => {
     setExecutionStatus("running")
-    // Simulate execution agent working
     setTimeout(() => setExecutionStatus("done"), 4000)
   }
 
@@ -49,7 +52,7 @@ export function IntelReport() {
             Investigation Complete
           </p>
           <p className="mt-1 text-xs text-foreground/60">
-            4 agents converged on root cause for{" "}
+            8 agents converged on root cause for{" "}
             <span className="text-foreground/80 font-medium">{bugReport.id}</span>
           </p>
         </div>
@@ -61,10 +64,14 @@ export function IntelReport() {
           </h3>
           <div className="space-y-1.5">
             {[
-              { icon: ScrollText, color: "text-amber-400", agent: "Logs", finding: "847 webhooks missing idempotency key; 142 customers with duplicate charges ($23,847)" },
-              { icon: Code2, color: "text-blue-400", agent: "Codebase", finding: "Commit b7e2f1a removed Redis SETNX guard; DB lacks UNIQUE constraint on stripe_charge_id" },
-              { icon: BookOpen, color: "text-emerald-400", agent: "Docs", finding: "ADR-019 violation confirmed — Redis idempotency layer was architecturally mandated" },
-              { icon: FlaskConical, color: "text-purple-400", agent: "Repro", finding: "Bug reproduced with 200ms concurrent webhooks; fix verified with SETNX + UNIQUE constraint" },
+              { icon: Search, color: "text-blue-400", agent: "Codebase Search", finding: "Commit b7e2f1a removed Redis SETNX guard; DB lacks UNIQUE constraint" },
+              { icon: BookOpen, color: "text-emerald-400", agent: "Docs", finding: "ADR-019 violation — Redis idempotency layer was architecturally mandated" },
+              { icon: ScrollText, color: "text-amber-400", agent: "Logs", finding: "847 webhooks missing idempotency; 142 customers affected ($23,847)" },
+              { icon: Brain, color: "text-rose-400", agent: "Root Cause", finding: "Synthesized findings: removed SETNX + missing UNIQUE = race condition" },
+              { icon: Wrench, color: "text-cyan-400", agent: "Patch Gen", finding: "PR #2848 — restore idempotency middleware + add DB constraint" },
+              { icon: Activity, color: "text-violet-400", agent: "CI Status", finding: "All 4 CI jobs green — lint, unit tests, integration, migration" },
+              { icon: Rabbit, color: "text-orange-400", agent: "CodeRabbit", finding: "Review passed — 1 nitpick suggestion (non-blocking)" },
+              { icon: MessageSquareReply, color: "text-pink-400", agent: "Review Response", finding: "Addressed CodeRabbit suggestion, PR approved and merge-ready" },
             ].map((item, i) => (
               <div
                 key={i}

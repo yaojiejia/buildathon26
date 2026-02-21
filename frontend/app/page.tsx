@@ -2,8 +2,8 @@
 
 import { EngineProvider, useEngine } from "@/lib/engine"
 import { Navbar } from "@/components/layout/navbar"
-import { WarRoom } from "@/components/warroom/war-room"
-import { IncidentHero } from "@/components/warroom/incident-hero"
+import { InvestigatePage } from "@/components/investigate/investigate-page"
+import { IncidentHero } from "@/components/investigate/incident-hero"
 
 function AppContent() {
   const { state } = useEngine()
@@ -19,7 +19,7 @@ function AppContent() {
         {state.status === "idle" ? (
           <IncidentHero />
         ) : (
-          <WarRoom />
+          <InvestigatePage />
         )}
       </div>
     </div>

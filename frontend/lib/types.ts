@@ -1,20 +1,39 @@
-// ─── Agent IDs ───────────────────────────────────────────────
-export type AgentId = "logs" | "codebase" | "docs" | "repro"
+// ─── Agent IDs (matches team tickets) ────────────────────────
+export type AgentId =
+  | "codebase_search"   // TICKET-3.2 — Codebase Search Agent (RAG)
+  | "docs"              // TICKET-3.3 — Docs Agent
+  | "logs"              // TICKET-3.4 — Logs Agent
+  | "root_cause"        // TICKET-3.5 — Root Cause Synthesis Agent
+  | "patch_gen"         // TICKET-4.1 — Patch Generation Agent
+  | "ci_status"         // TICKET-4.2 — CI Status Tracking
+  | "coderabbit"        // TICKET-4.3 — CodeRabbit Review Integration
+  | "review_response"   // TICKET-4.4 — Review Response Agent
+
+export const ALL_AGENT_IDS: AgentId[] = [
+  "codebase_search",
+  "docs",
+  "logs",
+  "root_cause",
+  "patch_gen",
+  "ci_status",
+  "coderabbit",
+  "review_response",
+]
 
 // ─── Agent status through investigation lifecycle ────────────
 export type AgentStatus = "idle" | "running" | "finding" | "done"
 
 // ─── Event types for individual agent actions ────────────────
 export type AgentEventType =
-  | "query"      // Agent runs a search/query
-  | "result"     // Agent receives a result
-  | "file_open"  // Agent opens a file
-  | "finding"    // Agent surfaces a finding
-  | "signal"     // Agent sends a message to another agent (cross-agent)
-  | "action"     // Agent performs an action (e.g., setting up env)
-  | "success"    // Agent confirms something positive
-  | "error"      // Agent encounters an error/suspicious item
-  | "complete"   // Agent finishes its work
+  | "query"
+  | "result"
+  | "file_open"
+  | "finding"
+  | "signal"
+  | "action"
+  | "success"
+  | "error"
+  | "complete"
 
 // ─── Single agent event ──────────────────────────────────────
 export interface AgentEvent {
@@ -22,10 +41,10 @@ export interface AgentEvent {
   agentId: AgentId
   type: AgentEventType
   message: string
-  detail?: string           // Extra detail (code snippet, log line, etc.)
-  targetAgent?: AgentId     // For signal events: who receives
-  timestamp?: number        // Filled at playback time (ms from start)
-  delay: number             // ms to wait before showing this event
+  detail?: string
+  targetAgent?: AgentId
+  timestamp?: number
+  delay: number
 }
 
 // ─── Timeline event (cross-agent communication) ──────────────
@@ -42,10 +61,10 @@ export interface TimelineEvent {
 export interface AgentState {
   id: AgentId
   name: string
-  icon: string              // Lucide icon name
+  icon: string
   status: AgentStatus
-  events: AgentEvent[]      // Events that have been "played" so far
-  color: string             // Tailwind color class
+  events: AgentEvent[]
+  color: string
 }
 
 // ─── Full investigation state ────────────────────────────────

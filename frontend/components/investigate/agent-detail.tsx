@@ -15,17 +15,24 @@ import {
   AlertTriangle,
   Terminal,
   ScrollText,
-  Code2,
   BookOpen,
-  FlaskConical,
+  Brain,
+  Wrench,
+  Activity,
+  Rabbit,
+  MessageSquareReply,
   X,
 } from "lucide-react"
 
 const agentIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  ScrollText,
-  Code2,
+  Search,
   BookOpen,
-  FlaskConical,
+  ScrollText,
+  Brain,
+  Wrench,
+  Activity,
+  Rabbit,
+  MessageSquareReply,
 }
 
 function EventIcon({ type }: { type: AgentEventType }) {
@@ -121,7 +128,6 @@ export function AgentDetail() {
   const meta = selectedId ? agentMeta[selectedId] : null
   const Icon = meta ? agentIconMap[meta.icon] : null
 
-  // Auto-scroll to bottom when new events arrive
   const currentEventCount = agent?.events.length ?? 0
   useEffect(() => {
     if (currentEventCount > prevEventCount.current && scrollRef.current) {
@@ -159,7 +165,6 @@ export function AgentDetail() {
           <p className="text-xs text-muted-foreground truncate">{meta.description}</p>
         </div>
 
-        {/* Live indicator */}
         {agent.status === "running" && (
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-2 w-2">
@@ -170,7 +175,6 @@ export function AgentDetail() {
           </div>
         )}
 
-        {/* Close button */}
         <button
           onClick={() => selectAgent(null)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-white/[0.05] hover:text-muted-foreground"

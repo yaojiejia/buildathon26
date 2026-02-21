@@ -12,6 +12,7 @@ import {
   AgentId,
   AgentState,
   AgentStatus,
+  ALL_AGENT_IDS,
   InvestigationState,
   TimelineEvent,
 } from "./types"
@@ -30,14 +31,17 @@ function makeInitialAgentState(id: AgentId): AgentState {
   }
 }
 
+function makeAllAgents(status: AgentStatus = "idle"): Record<AgentId, AgentState> {
+  const agents = {} as Record<AgentId, AgentState>
+  for (const id of ALL_AGENT_IDS) {
+    agents[id] = { ...makeInitialAgentState(id), status }
+  }
+  return agents
+}
+
 const initialState: InvestigationState = {
   status: "idle",
-  agents: {
-    logs: makeInitialAgentState("logs"),
-    codebase: makeInitialAgentState("codebase"),
-    docs: makeInitialAgentState("docs"),
-    repro: makeInitialAgentState("repro"),
-  },
+  agents: makeAllAgents("idle"),
   timeline: [],
   selectedAgent: null,
   elapsedMs: 0,
@@ -62,12 +66,7 @@ function reducer(state: InvestigationState, action: Action): InvestigationState 
         ...initialState,
         status: "running",
         selectedAgent: null,
-        agents: {
-          logs: { ...makeInitialAgentState("logs"), status: "running" },
-          codebase: { ...makeInitialAgentState("codebase"), status: "running" },
-          docs: { ...makeInitialAgentState("docs"), status: "running" },
-          repro: { ...makeInitialAgentState("repro"), status: "running" },
-        },
+        agents: makeAllAgents("running"),
       }
 
     case "RESET":
@@ -142,7 +141,6 @@ export function useEngine(): EngineContext {
 export function EngineProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState)
 
-  // Store all active timeout IDs so we can clear them on reset
   const timeoutIds = useRef<ReturnType<typeof setTimeout>[]>([])
   const startTime = useRef<number>(0)
   const tickInterval = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -167,25 +165,19 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
   }, [clearAllTimeouts])
 
   const startInvestigation = useCallback(() => {
-    // Clear any existing state
     clearAllTimeouts()
     dispatch({ type: "START_INVESTIGATION" })
 
     startTime.current = Date.now()
 
-    // Start elapsed timer
     tickInterval.current = setInterval(() => {
       dispatch({ type: "TICK", elapsedMs: Date.now() - startTime.current })
     }, 100)
 
-    // Track how many agents have completed
     let completedAgents = 0
-    const totalAgents = 4
+    const totalAgents = ALL_AGENT_IDS.length
 
-    // For each agent, schedule its events sequentially
-    const agentIds: AgentId[] = ["logs", "codebase", "docs", "repro"]
-
-    agentIds.forEach((agentId) => {
+    ALL_AGENT_IDS.forEach((agentId) => {
       const events = allAgentEvents[agentId]
       let cumulativeDelay = 0
 
@@ -195,11 +187,9 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
         const tid = setTimeout(() => {
           const timestamp = Date.now() - startTime.current
 
-          // Dispatch the agent event with timestamp
           const eventWithTimestamp = { ...event, timestamp }
           dispatch({ type: "AGENT_EVENT", event: eventWithTimestamp })
 
-          // If it's a signal event, also add to timeline
           if (event.type === "signal" || event.type === "finding" || event.type === "complete") {
             const timelineEvent: TimelineEvent = {
               id: `tl-${event.id}`,
@@ -212,12 +202,10 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
             dispatch({ type: "TIMELINE_EVENT", event: timelineEvent })
           }
 
-          // If it's a complete event, mark agent done
           if (event.type === "complete") {
             dispatch({ type: "AGENT_STATUS", agentId, status: "done" })
             completedAgents++
 
-            // Check if all agents are done
             if (completedAgents >= totalAgents) {
               dispatch({ type: "INVESTIGATION_COMPLETE" })
               if (tickInterval.current) {

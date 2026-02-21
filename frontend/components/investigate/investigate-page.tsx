@@ -6,7 +6,7 @@ import { AgentDetail } from "./agent-detail"
 import { IntelReport } from "./intel-report"
 import { cn } from "@/lib/utils"
 
-export function WarRoom() {
+export function InvestigatePage() {
   const { state } = useEngine()
 
   const isComplete = state.status === "complete"
@@ -14,11 +14,11 @@ export function WarRoom() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* Agent panel — wide by default, shrinks when thinking process is open */}
+      {/* Agent panel — wide & centered by default, shrinks when thinking process is open */}
       <div
         className={cn(
           "flex-shrink-0 border-r border-white/[0.06] bg-black/20 transition-all duration-400 ease-out overflow-hidden",
-          hasSelectedAgent ? "w-72" : "flex-1 min-w-[400px]"
+          hasSelectedAgent ? "w-72" : "flex-1"
         )}
       >
         <AgentSidebar />
