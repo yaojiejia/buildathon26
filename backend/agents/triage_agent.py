@@ -12,6 +12,17 @@ Takes a GitHub issue (title + body) and returns structured JSON:
 import json
 import anthropic
 
+from events import (
+    EventEmitter,
+    get_default_emitter,
+    AGENT_TRIAGE,
+    EVENT_STATUS,
+    EVENT_PROGRESS,
+    EVENT_RESULT,
+    EVENT_ERROR,
+    EVENT_LOG,
+)
+
 
 TRIAGE_SYSTEM_PROMPT = """\
 You are a senior software triage engineer. Your job is to analyze incoming
@@ -56,6 +67,7 @@ def triage_issue(
     repo_name: str = "",
     existing_issues: list[str] | None = None,
     model: str = "claude-sonnet-4-20250514",
+    emitter: EventEmitter | None = None,
 ) -> dict:
     """Run the triage agent on a GitHub issue.
 
@@ -65,13 +77,33 @@ def triage_issue(
         repo_name: Optional repo name for context.
         existing_issues: Optional list of existing issue titles for duplicate detection.
         model: Claude model to use.
+        emitter: Optional event emitter for status updates.
 
     Returns:
         Structured triage result as a dict.
     """
+    em = emitter or get_default_emitter()
+    A = AGENT_TRIAGE  # shorthand
+
+    # ── Starting ──────────────────────────────────────────────────
+    em.emit(A, EVENT_STATUS, "starting", "Triage Agent starting", {
+        "issue_title": issue_title,
+        "repo_name": repo_name,
+    })
+
+    em.emit(A, EVENT_STATUS, "starting",
+            "═" * 58)
+    em.emit(A, EVENT_STATUS, "starting",
+            "  TRIAGE AGENT — Analyzing issue")
+    em.emit(A, EVENT_STATUS, "starting",
+            "═" * 58)
+
+    # ── Build prompt ──────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "building_prompt",
+            f"Building prompt for: \"{issue_title}\"")
+
     client = anthropic.Anthropic()
 
-    # Build the user message with all available context
     user_message = f"Issue Title: {issue_title}\n\n"
     user_message += f"Issue Body:\n{issue_body or '(no description provided)'}\n"
 
@@ -80,30 +112,74 @@ def triage_issue(
 
     if existing_issues:
         user_message += "\nExisting open issues (for duplicate detection):\n"
-        for i, title in enumerate(existing_issues[:20], 1):  # cap at 20
+        for i, title in enumerate(existing_issues[:20], 1):
             user_message += f"  {i}. {title}\n"
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        system=TRIAGE_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    em.emit(A, EVENT_LOG, "building_prompt",
+            f"Prompt built ({len(user_message)} chars)")
 
-    # Extract the text response
+    # ── Call Claude ───────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "calling_claude",
+            f"Calling Claude ({model}) for triage analysis...")
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=TRIAGE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "calling_claude", f"Claude API error: {e}")
+        raise
+
     raw_text = response.content[0].text.strip()
 
-    # Parse JSON (strip markdown fences if model adds them despite instructions)
+    em.emit(A, EVENT_LOG, "calling_claude",
+            f"Received response ({len(raw_text)} chars)")
+
+    # ── Parse JSON ───────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "parsing_response",
+            "Parsing Claude response...")
+
     if raw_text.startswith("```"):
         raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    result = json.loads(raw_text)
+    try:
+        result = json.loads(raw_text)
+    except json.JSONDecodeError as e:
+        em.emit(A, EVENT_ERROR, "parsing_response",
+                f"Failed to parse JSON: {e}")
+        em.emit(A, EVENT_LOG, "parsing_response",
+                f"Raw response: {raw_text[:500]}")
+        raise
 
-    # Validate expected fields
+    # ── Validate ─────────────────────────────────────────────────
     expected_keys = {"severity", "likely_module", "is_duplicate", "duplicate_of", "summary"}
     missing = expected_keys - set(result.keys())
     if missing:
+        em.emit(A, EVENT_ERROR, "validating",
+                f"Response missing fields: {missing}")
         raise ValueError(f"Triage response missing fields: {missing}")
 
-    return result
+    # ── Report results ───────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Severity: {result['severity'].upper()}")
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Likely module: {result['likely_module']}")
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Duplicate: {'Yes → ' + result['duplicate_of'] if result['is_duplicate'] else 'No'}")
+    em.emit(A, EVENT_LOG, "complete",
+            f"Summary: {result['summary'][:150]}...")
 
+    em.emit(A, EVENT_RESULT, "complete",
+            "Triage complete", {"triage_result": result})
+
+    em.emit(A, EVENT_STATUS, "complete",
+            "═" * 58)
+    em.emit(A, EVENT_STATUS, "complete",
+            "  TRIAGE AGENT — Complete")
+    em.emit(A, EVENT_STATUS, "complete",
+            "═" * 58)
+
+    return result

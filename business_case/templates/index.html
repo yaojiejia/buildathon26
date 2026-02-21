@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShopEasy – Order Management</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+    header { background: #2563eb; color: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 1.3rem; }
+    .container { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card h2 { margin-bottom: 1rem; font-size: 1.1rem; color: #1e40af; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #e5e7eb; }
+    th { font-weight: 600; font-size: 0.85rem; color: #6b7280; text-transform: uppercase; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }
+    .badge-gold { background: #fef3c7; color: #92400e; }
+    .badge-silver { background: #e5e7eb; color: #374151; }
+    .badge-bronze { background: #fde68a; color: #78350f; }
+    .badge-confirmed { background: #d1fae5; color: #065f46; }
+    .badge-refunded { background: #fee2e2; color: #991b1b; }
+    .badge-pending { background: #e0e7ff; color: #3730a3; }
+    .form-row { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .form-row label { font-size: 0.85rem; font-weight: 500; }
+    .form-row select, .form-row input { padding: 0.4rem 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
+    button { padding: 0.5rem 1.2rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+    button:hover { background: #1d4ed8; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    .msg { padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
+    .msg-ok { background: #d1fae5; color: #065f46; }
+    .msg-err { background: #fee2e2; color: #991b1b; }
+    #msg { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛒 ShopEasy</h1>
+    <span>Order Management System</span>
+  </header>
+
+  <div class="container">
+    <div id="msg" class="msg"></div>
+
+    <!-- Products -->
+    <div class="card">
+      <h2>Products</h2>
+      <table><thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Stock</th></tr></thead><tbody id="products"></tbody></table>
+    </div>
+
+    <!-- Customers -->
+    <div class="card">
+      <h2>Customers</h2>
+      <table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Points</th><th>Tier</th></tr></thead><tbody id="customers"></tbody></table>
+    </div>
+
+    <!-- Place Order -->
+    <div class="card">
+      <h2>Place Order</h2>
+      <div class="form-row">
+        <div><label>Customer</label><br/><select id="custSelect"></select></div>
+        <div><label>Product</label><br/><select id="prodSelect"></select></div>
+        <div><label>Qty</label><br/><input type="number" id="qty" value="1" min="1" style="width:60px"/></div>
+        <div><label>Promo Code</label><br/><input type="text" id="promo" placeholder="optional" /></div>
+      </div>
+      <button onclick="placeOrder()">Place Order</button>
+    </div>
+
+    <!-- Orders -->
+    <div class="card">
+      <h2>Orders</h2>
+      <table><thead><tr><th>ID</th><th>Customer</th><th>Subtotal</th><th>Discount</th><th>Total</th><th>Refund Amt</th><th>Promo</th><th>Status</th><th></th></tr></thead><tbody id="orders"></tbody></table>
+    </div>
+  </div>
+
+  <script>
+    const API = '/api';
+
+    function flash(text, ok) {
+      const el = document.getElementById('msg');
+      el.textContent = text;
+      el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 4000);
+    }
+
+    async function load() {
+      // Products
+      const prods = await (await fetch(`${API}/products`)).json();
+      document.getElementById('products').innerHTML = prods.map(p =>
+        `<tr><td>${p.id}</td><td>${p.name}</td><td>$${p.price.toFixed(2)}</td><td>${p.stock}</td></tr>`
+      ).join('');
+      document.getElementById('prodSelect').innerHTML = prods.map(p =>
+        `<option value="${p.id}">${p.name} ($${p.price.toFixed(2)})</option>`
+      ).join('');
+
+      // Customers
+      const custs = await (await fetch(`${API}/customers`)).json();
+      document.getElementById('customers').innerHTML = custs.map(c =>
+        `<tr><td>${c.id}</td><td>${c.name}</td><td>${c.email}</td><td>${c.loyalty_points}</td><td><span class="badge badge-${c.loyalty_tier}">${c.loyalty_tier}</span></td></tr>`
+      ).join('');
+      document.getElementById('custSelect').innerHTML = custs.map(c =>
+        `<option value="${c.id}">${c.name}</option>`
+      ).join('');
+
+      // Orders
+      const orders = await (await fetch(`${API}/orders`)).json();
+      document.getElementById('orders').innerHTML = orders.map(o =>
+        `<tr>
+          <td>${o.id}</td><td>${o.customer_id}</td>
+          <td>$${o.subtotal.toFixed(2)}</td><td>$${o.discount_amount.toFixed(2)}</td>
+          <td>$${o.total.toFixed(2)}</td>
+          <td>${o.refund_amount != null ? '$' + o.refund_amount.toFixed(2) : '—'}</td>
+          <td>${o.promo_code_used || '—'}</td>
+          <td><span class="badge badge-${o.status}">${o.status}</span></td>
+          <td>${o.status !== 'refunded' ? `<button class="danger" onclick="refund(${o.id})">Refund</button>` : ''}</td>
+        </tr>`
+      ).join('');
+    }
+
+    async function placeOrder() {
+      const body = {
+        customer_id: +document.getElementById('custSelect').value,
+        items: [{ product_id: +document.getElementById('prodSelect').value, quantity: +document.getElementById('qty').value }],
+        promo_code: document.getElementById('promo').value || null,
+      };
+      const res = await fetch(`${API}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (res.ok) { flash(`Order #${data.id} placed — Total: $${data.total.toFixed(2)} (discount: $${data.discount_amount.toFixed(2)})`, true); }
+      else { flash(data.detail, false); }
+      load();
+    }
+
+    async function refund(orderId) {
+      const res = await fetch(`${API}/refunds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: orderId }) });
+      const data = await res.json();
+      if (res.ok) { flash(`Order #${data.order_id} refunded — $${data.refund_amount.toFixed(2)}`, true); }
+      else { flash(data.detail, false); }
+      load();
+    }
+
+    load();
+  </script>
+</body>
+</html>
+
