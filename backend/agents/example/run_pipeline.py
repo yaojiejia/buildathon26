@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 from pipeline import pipeline
-from llm import get_default_model
+from llm import get_default_model, DEFAULT_ANTHROPIC_MODEL
 from events import ConsoleEventEmitter
 
 
@@ -99,8 +99,18 @@ def main():
                         help="Remote git repo URL (if not set, uses local business_case/)")
     parser.add_argument("--repo-name", type=str, default="shopeasy/order-mgmt", help="Repo name")
     parser.add_argument("--model", type=str, default=None, help="LLM model (default: from LLM_PROVIDER config)")
+    parser.add_argument("--use-claude", action="store_true",
+                        help="Use Anthropic Claude for this run")
+    parser.add_argument("--claude-model", type=str, default=None,
+                        help=f"Claude model override (default: ANTHROPIC_MODEL or {DEFAULT_ANTHROPIC_MODEL})")
+    parser.add_argument("--num-questions", type=int, default=5,
+                        help="Number of investigation questions for codebase search (1-10)")
     parser.add_argument("--reindex", action="store_true",
                         help="Force Nia to re-index the repo (deletes stale index first)")
+    parser.add_argument("--slack-source", type=str, default=None,
+                        help="Optional Nia data source name/id for Slack message search")
+    parser.add_argument("--enable-patch-agent", action="store_true",
+                        help="Run patch generation agent (creates branch, code changes, and draft PR attempt)")
     parser.add_argument("--list-scenarios", action="store_true", help="List available test scenarios")
     args = parser.parse_args()
 
@@ -118,10 +128,20 @@ def main():
 
     # ── Resolve model ────────────────────────────────────────────
     model = args.model or get_default_model()
+    if args.use_claude:
+        model = args.claude_model or os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL)
 
     # ── Verify API key ───────────────────────────────────────────
     from llm import get_provider, PROVIDER_NVIDIA, PROVIDER_ANTHROPIC
-    provider = get_provider()
+    configured_provider = get_provider()
+    model_lower = model.lower()
+    if model_lower.startswith("claude") or model_lower.startswith("anthropic"):
+        provider = PROVIDER_ANTHROPIC
+    elif model_lower.startswith("nvidia/") or model_lower.startswith("meta/") or model_lower.startswith("mistralai/"):
+        provider = PROVIDER_NVIDIA
+    else:
+        provider = configured_provider
+
     if provider == PROVIDER_NVIDIA and not os.environ.get("NVIDIA_API_KEY"):
         print("Error: NVIDIA_API_KEY not set.", file=sys.stderr)
         print("Add it to backend/.env or: export NVIDIA_API_KEY=nvapi-...", file=sys.stderr)
@@ -150,6 +170,11 @@ def main():
         print(f"  Source:   {args.repo_url}")
     if args.reindex:
         print(f"  Reindex:  YES (force re-index on Nia)")
+    if args.slack_source or os.environ.get("NIA_SLACK_SOURCE"):
+        print(f"  Slack:    {args.slack_source or os.environ.get('NIA_SLACK_SOURCE')}")
+    if args.enable_patch_agent:
+        print("  Patch:    ENABLED")
+    print(f"  Questions:{args.num_questions}")
     print(f"  Provider: {provider}")
     print(f"  Model:    {model}")
     print("=" * 60)
@@ -161,6 +186,7 @@ def main():
         "issue_body": body,
         "repo_name": args.repo_name,
         "model": model,
+        "num_questions": max(1, min(args.num_questions, 10)),
         "emitter": emitter,
     }
 
@@ -172,6 +198,10 @@ def main():
 
     if args.reindex:
         input_state["force_reindex"] = True
+    if args.slack_source or os.environ.get("NIA_SLACK_SOURCE"):
+        input_state["slack_source"] = args.slack_source or os.environ.get("NIA_SLACK_SOURCE")
+    if args.enable_patch_agent:
+        input_state["enable_patch_agent"] = True
 
     # ── Run the pipeline ─────────────────────────────────────────
     result = pipeline.invoke(input_state)
