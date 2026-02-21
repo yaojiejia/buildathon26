@@ -35,6 +35,7 @@ from typing import Any, Callable, Protocol
 # Agent identifiers
 AGENT_TRIAGE = "triage"
 AGENT_CODEBASE_SEARCH = "codebase_search"
+AGENT_LOG = "log_analysis"
 AGENT_PIPELINE = "pipeline"
 
 # Event types
@@ -43,6 +44,7 @@ EVENT_PROGRESS = "progress"   # Incremental progress within a step
 EVENT_RESULT = "result"       # Agent produced a result
 EVENT_ERROR = "error"         # Something went wrong
 EVENT_LOG = "log"             # Verbose debug log line
+EVENT_SUMMARY = "summary"    # Agent-level summary sent to frontend
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -69,6 +71,7 @@ class ConsoleEventEmitter:
     _COLORS = {
         AGENT_TRIAGE: "\033[36m",        # cyan
         AGENT_CODEBASE_SEARCH: "\033[33m",  # yellow
+        AGENT_LOG: "\033[32m",           # green
         AGENT_PIPELINE: "\033[35m",      # magenta
     }
     _RESET = "\033[0m"
@@ -82,6 +85,7 @@ class ConsoleEventEmitter:
         EVENT_RESULT: "✓",
         EVENT_ERROR: "✗",
         EVENT_LOG: "·",
+        EVENT_SUMMARY: "■",
     }
 
     def emit(
@@ -96,7 +100,17 @@ class ConsoleEventEmitter:
         icon = self._ICONS.get(event_type, " ")
         agent_label = agent.upper().replace("_", " ")
 
-        if event_type == EVENT_STATUS:
+        if event_type == EVENT_SUMMARY:
+            # Distinct block for agent summaries — the frontend would render these
+            print(f"{color}{self._BOLD}  [{agent_label}] {icon} {message}{self._RESET}")
+            if data:
+                for key, value in data.items():
+                    if isinstance(value, list):
+                        for item in value:
+                            print(f"{color}  [{agent_label}]   • {item}{self._RESET}")
+                    else:
+                        print(f"{color}  [{agent_label}]   {key}: {value}{self._RESET}")
+        elif event_type == EVENT_STATUS:
             print(f"{color}{self._BOLD}  [{agent_label}] {icon} {message}{self._RESET}")
         elif event_type == EVENT_PROGRESS:
             print(f"{color}  [{agent_label}] {icon} {message}{self._RESET}")

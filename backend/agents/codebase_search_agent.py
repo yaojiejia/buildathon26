@@ -1,5 +1,5 @@
 """
-Codebase Search Agent — Claude + Nia collaborative investigation.
+Codebase Search Agent — LLM + Nia collaborative investigation.
 
 Workflow:
   1. CLAUDE: Generate 3-5 targeted investigation questions from the bug report
@@ -7,7 +7,7 @@ Workflow:
   3. CLAUDE: Analyze all collected evidence and produce a structured report
 
 For local directories (no Nia), the same workflow applies but questions are
-answered via local file search + Claude instead of Nia.
+answered via local file search + an LLM instead of Nia.
 
 Output schema:
 {
@@ -66,6 +66,7 @@ from events import (
     EVENT_RESULT,
     EVENT_ERROR,
     EVENT_LOG,
+    EVENT_SUMMARY,
 )
 
 # ── Constants ────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ MAX_INDEX_FILES = 500
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  CLAUDE PROMPTS
+#  LLM PROMPTS
 # ═══════════════════════════════════════════════════════════════════
 
 QUESTION_GEN_SYSTEM_PROMPT = """\
@@ -179,7 +180,7 @@ actually appear in the provided index.
 #  CLAUDE HELPERS
 # ═══════════════════════════════════════════════════════════════════
 
-def _call_claude(system: str, user_msg: str, model: str) -> str:
+def _call_model(system: str, user_msg: str, model: str) -> str:
     """Call the configured LLM and return the text response."""
     return call_llm(system=system, user_msg=user_msg, model=model)
 
@@ -242,7 +243,7 @@ def _build_issue_context(
     repo_name: str,
     triage_result: dict | None,
 ) -> str:
-    """Build the issue context string for Claude prompts."""
+    """Build the issue context string for LLM prompts."""
     context = f"Issue Title: {issue_title}\n"
     context += f"Issue Body: {issue_body or '(none)'}\n"
     if repo_name:
@@ -255,7 +256,7 @@ def _build_issue_context(
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  STEP 1: CLAUDE GENERATES INVESTIGATION QUESTIONS
+#  STEP 1: LLM GENERATES INVESTIGATION QUESTIONS
 # ═══════════════════════════════════════════════════════════════════
 
 def _generate_questions(
@@ -265,24 +266,24 @@ def _generate_questions(
     model: str,
     em: EventEmitter | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Ask Claude to generate targeted investigation questions + grep patterns."""
+    """Ask the LLM to generate targeted investigation questions + grep patterns."""
     em = em or get_default_emitter()
 
     em.emit(A, EVENT_PROGRESS, "generating_questions",
-            "Asking Claude to generate investigation questions...")
+            f"Asking LLM ({model}) to generate investigation questions...")
 
     context = _build_issue_context(issue_title, issue_body, "", triage_result)
     em.emit(A, EVENT_LOG, "generating_questions",
             f"Context built ({len(context)} chars)")
 
     try:
-        raw = _call_claude(QUESTION_GEN_SYSTEM_PROMPT, context, model)
+        raw = _call_model(QUESTION_GEN_SYSTEM_PROMPT, context, model)
     except Exception as e:
-        em.emit(A, EVENT_ERROR, "generating_questions", f"Claude API error: {e}")
+        em.emit(A, EVENT_ERROR, "generating_questions", f"LLM API error: {e}")
         return [], []
 
     em.emit(A, EVENT_LOG, "generating_questions",
-            f"Claude responded ({len(raw)} chars)")
+            f"LLM responded ({len(raw)} chars)")
 
     # Show full response for debugging
     for line in raw.splitlines():
@@ -777,7 +778,7 @@ def _collect_evidence_local(
     model: str,
     em: EventEmitter | None = None,
 ) -> list[dict]:
-    """Collect evidence locally: file index + Claude answers + local grep."""
+    """Collect evidence locally: file index + LLM answers + local grep."""
     em = em or get_default_emitter()
 
     em.emit(A, EVENT_PROGRESS, "collecting_evidence",
@@ -798,7 +799,7 @@ def _collect_evidence_local(
     evidence = []
 
     em.emit(A, EVENT_PROGRESS, "collecting_evidence",
-            f"Answering {len(questions)} questions using Claude + local files...")
+            f"Answering {len(questions)} questions using LLM + local files...")
 
     for i, question in enumerate(questions, 1):
         em.emit(A, EVENT_PROGRESS, "collecting_evidence",
@@ -812,7 +813,7 @@ def _collect_evidence_local(
             f"Include relevant code snippets."
         )
 
-        answer_raw = _call_claude(
+        answer_raw = _call_model(
             "You are a code analysis expert. Answer the question based on the provided code. "
             "Be specific about file paths, line numbers, and include relevant code snippets.",
             answer_prompt,
@@ -859,7 +860,7 @@ def _collect_evidence_local(
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  STEP 3: CLAUDE GENERATES FINAL REPORT FROM EVIDENCE
+#  STEP 3: LLM GENERATES FINAL REPORT FROM EVIDENCE
 # ═══════════════════════════════════════════════════════════════════
 
 def _generate_report(
@@ -870,11 +871,11 @@ def _generate_report(
     model: str,
     em: EventEmitter | None = None,
 ) -> dict:
-    """Feed all evidence back to Claude to produce the final investigation report."""
+    """Feed all evidence back to the LLM to produce the final investigation report."""
     em = em or get_default_emitter()
 
     em.emit(A, EVENT_PROGRESS, "generating_report",
-            f"Claude analyzing {len(evidence)} pieces of evidence...")
+            f"LLM ({model}) analyzing {len(evidence)} pieces of evidence...")
 
     context = _build_issue_context(issue_title, issue_body, "", triage_result)
 
@@ -908,7 +909,7 @@ def _generate_report(
         f"Based on this evidence, produce the investigation report."
     )
 
-    raw = _call_claude(REPORT_SYSTEM_PROMPT, report_msg, model)
+    raw = _call_model(REPORT_SYSTEM_PROMPT, report_msg, model)
     result = _parse_json_safe(raw, {
         "suspect_files": [], "reasoning": "", "confidence": "low",
     }, em)
@@ -952,7 +953,7 @@ def search_codebase(
         repo_url: Git URL or local directory path.
         repo_name: Human-readable repo name (e.g. 'owner/repo').
         triage_result: Optional output from the triage agent.
-        model: Claude model to use.
+        model: LLM model to use.
         clone_dir: Optional pre-existing clone directory.
         force_reindex: If True, delete and re-index the repo on Nia.
         emitter: Optional event emitter for status updates.
@@ -975,7 +976,7 @@ def search_codebase(
         "repo_name": repo_name,
     })
 
-    # ── Step 1: Claude generates questions ────────────────────────
+    # ── Step 1: LLM generates questions ───────────────────────────
     em.emit(A, EVENT_STATUS, "generating_questions",
             "STEP 1/3: Generating investigation questions")
 
@@ -1011,7 +1012,7 @@ def search_codebase(
         em.emit(A, EVENT_PROGRESS, "collecting_evidence",
                 f"✗ Source is a local directory ({clone_dir or repo_url}) — Nia requires a GitHub repo")
         em.emit(A, EVENT_PROGRESS, "collecting_evidence",
-                "  → Using local file search + Claude as fallback")
+                "  → Using local file search + LLM as fallback")
     elif github_repo:
         em.emit(A, EVENT_PROGRESS, "collecting_evidence",
                 f"✓ GitHub repo detected: {github_repo}")
@@ -1067,9 +1068,9 @@ def search_codebase(
             "evidence_collected": [],
         }
 
-    # ── Step 3: Claude analyzes evidence → report ────────────────
+    # ── Step 3: LLM analyzes evidence → report ───────────────────
     em.emit(A, EVENT_STATUS, "generating_report",
-            "STEP 3/3: Claude analyzing evidence → final report")
+            f"STEP 3/3: LLM ({model}) analyzing evidence → final report")
 
     report = _generate_report(
         issue_title, issue_body, triage_result, evidence, model, em,
@@ -1080,6 +1081,26 @@ def search_codebase(
                 "suspect_files": len(report.get("suspect_files", [])),
                 "confidence": report.get("confidence", "unknown"),
             }})
+
+    # ── Summary for frontend ─────────────────────────────────────
+    suspect_files = report.get("suspect_files", [])
+    summary_findings = []
+    for sf in suspect_files[:5]:
+        path = sf.get("file_path", "?")
+        why = sf.get("why_relevant", "")
+        lines = sf.get("lines_referenced", [])
+        line_str = f" (lines {', '.join(str(l) for l in lines[:5])})" if lines else ""
+        summary_findings.append(f"{path}{line_str} — {why[:100]}")
+
+    em.emit(A, EVENT_SUMMARY, "summary",
+            "Codebase Search Summary", {
+                "confidence": report.get("confidence", "unknown"),
+                "suspect_files_count": len(suspect_files),
+                "questions_asked": len(report.get("questions_asked", [])),
+                "evidence_pieces": len(report.get("evidence_collected", [])),
+                "findings": summary_findings,
+                "reasoning": report.get("reasoning", "")[:200],
+            })
 
     em.emit(A, EVENT_STATUS, "complete",
             "═" * 58)

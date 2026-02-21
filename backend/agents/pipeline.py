@@ -1,11 +1,11 @@
 """
-LangGraph Pipeline — orchestrates agents: Triage → Codebase Search.
+LangGraph Pipeline — orchestrates agents: Triage → Codebase Search → Log Analysis.
 
 Uses LangGraph StateGraph to define a DAG of agent nodes.
 Each node receives the shared state, runs its agent, and updates state.
 
 Flow:
-  START → triage_node → codebase_search_node → report_node → END
+  START → triage_node → codebase_search_node → log_analysis_node → report_node → END
 
 The event emitter is passed through state so each agent can emit
 real-time status updates to the frontend (or console).
@@ -19,6 +19,7 @@ from langgraph.graph import StateGraph, START, END
 from llm import get_default_model
 from triage_agent import triage_issue
 from codebase_search_agent import search_codebase
+from log_agent import analyze_logs
 from events import (
     EventEmitter,
     get_default_emitter,
@@ -50,6 +51,9 @@ class PipelineState(TypedDict, total=False):
 
     # Output from codebase search
     search_result: dict
+
+    # Output from log analysis
+    log_result: dict
 
     # Final combined report
     report: dict
@@ -111,12 +115,39 @@ def codebase_search_node(state: PipelineState) -> dict:
     return {"search_result": result}
 
 
+def log_analysis_node(state: PipelineState) -> dict:
+    """Run the Log Analysis Agent, querying Sentry for related logs."""
+    em: EventEmitter = state.get("emitter") or get_default_emitter()
+
+    em.emit(AGENT_PIPELINE, EVENT_STATUS, "log_analysis",
+            "─" * 58)
+    em.emit(AGENT_PIPELINE, EVENT_STATUS, "log_analysis",
+            "Pipeline → Running Log Analysis Agent")
+    em.emit(AGENT_PIPELINE, EVENT_STATUS, "log_analysis",
+            "─" * 58)
+
+    result = analyze_logs(
+        issue_title=state["issue_title"],
+        issue_body=state.get("issue_body", ""),
+        triage_result=state.get("triage_result"),
+        search_result=state.get("search_result"),
+        model=state.get("model") or get_default_model(),
+        emitter=em,
+    )
+
+    em.emit(AGENT_PIPELINE, EVENT_PROGRESS, "log_analysis",
+            "Log Analysis Agent finished")
+
+    return {"log_result": result}
+
+
 def report_node(state: PipelineState) -> dict:
     """Combine triage + search into a final investigation report."""
     em: EventEmitter = state.get("emitter") or get_default_emitter()
 
     triage = state.get("triage_result", {})
     search = state.get("search_result", {})
+    logs = state.get("log_result", {})
 
     report = {
         "issue": {
@@ -126,6 +157,7 @@ def report_node(state: PipelineState) -> dict:
         },
         "triage": triage,
         "investigation": search,
+        "log_analysis": logs,
     }
 
     em.emit(AGENT_PIPELINE, EVENT_RESULT, "report",
@@ -133,6 +165,8 @@ def report_node(state: PipelineState) -> dict:
                 "severity": triage.get("severity", "unknown"),
                 "suspect_files": len(search.get("suspect_files", [])),
                 "confidence": search.get("confidence", "unknown"),
+                "suspicious_logs": len(logs.get("suspicious_logs", [])),
+                "log_patterns": len(logs.get("patterns_found", [])),
             })
 
     return {"report": report}
@@ -157,12 +191,14 @@ def build_pipeline() -> Any:
     # Add nodes
     graph.add_node("triage", triage_node)
     graph.add_node("codebase_search", codebase_search_node)
+    graph.add_node("log_analysis", log_analysis_node)
     graph.add_node("report", report_node)
 
-    # Define edges: START → triage → codebase_search → report → END
+    # Define edges: START → triage → codebase_search → log_analysis → report → END
     graph.add_edge(START, "triage")
     graph.add_edge("triage", "codebase_search")
-    graph.add_edge("codebase_search", "report")
+    graph.add_edge("codebase_search", "log_analysis")
+    graph.add_edge("log_analysis", "report")
     graph.add_edge("report", END)
 
     return graph.compile()
