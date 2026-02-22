@@ -603,7 +603,7 @@ def _create_draft_pr(repo_path: str, title: str, body: str, branch: str, em: Eve
 
     base = _default_branch(repo_path)
     head_ref = f"{branch}"
-    cmd = ["gh", "pr", "create", "--draft", "--title", title, "--body", body, "--base", base, "--head", head_ref]
+    cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", base, "--head", head_ref]
     res = _run(cmd, cwd=repo_path, env=gh_env)
     if res.returncode == 0:
         url = (res.stdout or "").strip().splitlines()[-1] if (res.stdout or "").strip() else ""
