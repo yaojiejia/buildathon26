@@ -31,6 +31,7 @@ MAX_CONTEXT_FILES = 12
 MAX_FILE_CHARS = 12000
 MAX_PATCH_ATTEMPTS = 3
 RAW_PREVIEW_CHARS = 500
+PATCH_MAX_TOKENS = int(os.environ.get("PATCH_AGENT_MAX_TOKENS", "12000"))
 
 
 PATCH_SYSTEM_PROMPT = """\
@@ -155,6 +156,80 @@ def _parse_json_safe(raw_text: str, fallback: dict) -> dict:
         return fallback
 
 
+def _normalize_patch_payload(payload: dict) -> dict:
+    """Normalize common model variants to the expected patch schema."""
+    if not isinstance(payload, dict):
+        return payload
+
+    # Some models wrap the real payload.
+    for k in ("patch", "result", "output", "data"):
+        inner = payload.get(k)
+        if isinstance(inner, dict):
+            payload = inner
+            break
+
+    alias_changes = [
+        "code_changes",
+        "file_changes",
+        "patch_changes",
+        "edits",
+        "files",
+    ]
+    alias_tests = [
+        "test_changes",
+        "test_files",
+    ]
+
+    # Case-insensitive key support.
+    lowered = {str(k).lower(): k for k in payload.keys()}
+    if "changes" not in payload and "changes" in lowered:
+        payload["changes"] = payload[lowered["changes"]]
+    if "tests" not in payload and "tests" in lowered:
+        payload["tests"] = payload[lowered["tests"]]
+
+    if not isinstance(payload.get("changes"), list):
+        for key in alias_changes:
+            if isinstance(payload.get(key), list):
+                payload["changes"] = payload[key]
+                break
+    if not isinstance(payload.get("tests"), list):
+        for key in alias_tests:
+            if isinstance(payload.get(key), list):
+                payload["tests"] = payload[key]
+                break
+
+    if not isinstance(payload.get("changes"), list):
+        payload["changes"] = []
+    if not isinstance(payload.get("tests"), list):
+        payload["tests"] = []
+
+    # Recover file edits from nested structures when model didn't use the exact keys.
+    def _visit(node: object, out: list[dict]) -> None:
+        if isinstance(node, dict):
+            file_path = node.get("file_path") or node.get("path") or node.get("filename")
+            content = node.get("content") or node.get("text") or node.get("code") or node.get("new_content")
+            if isinstance(file_path, str) and file_path.strip():
+                out.append({
+                    "file_path": file_path,
+                    "action": str(node.get("action", "update")).lower(),
+                    "content": content,
+                    "summary": str(node.get("summary", "")),
+                })
+            for v in node.values():
+                _visit(v, out)
+            return
+        if isinstance(node, list):
+            for v in node:
+                _visit(v, out)
+
+    if not payload["changes"] and not payload["tests"]:
+        recovered: list[dict] = []
+        _visit(payload, recovered)
+        if recovered:
+            payload["changes"] = recovered
+    return payload
+
+
 def _read_file(path: Path) -> str:
     try:
         return path.read_text(errors="ignore")
@@ -268,6 +343,42 @@ def _coerce_content_to_text(content: object) -> str | None:
             if isinstance(value, list) and all(isinstance(x, str) for x in value):
                 return "\n".join(value)
     return None
+
+
+def _debug_patch_items(items: list, label: str, em: EventEmitter) -> None:
+    """Emit concise diagnostics for patch/test item shape and usability."""
+    total = len(items) if isinstance(items, list) else 0
+    valid_dicts = 0
+    with_path = 0
+    with_content = 0
+    preview_lines: list[str] = []
+
+    if isinstance(items, list):
+        for i, item in enumerate(items[:8], 1):
+            if isinstance(item, dict):
+                valid_dicts += 1
+                raw_path = str(item.get("file_path", item.get("path", ""))).strip()
+                raw_content = item.get("content", item.get("text", item.get("code")))
+                if raw_path:
+                    with_path += 1
+                if _coerce_content_to_text(raw_content) is not None:
+                    with_content += 1
+                preview_lines.append(
+                    f"  {label}[{i}]: path='{raw_path}' "
+                    f"content_type={type(raw_content).__name__} "
+                    f"action='{str(item.get('action', 'update')).lower()}'"
+                )
+            else:
+                preview_lines.append(f"  {label}[{i}]: non-dict type={type(item).__name__}")
+
+    em.emit(
+        AGENT_PATCH,
+        EVENT_LOG,
+        "llm",
+        f"{label} diagnostics: total={total}, dicts={valid_dicts}, with_path={with_path}, with_content={with_content}",
+    )
+    for line in preview_lines:
+        em.emit(AGENT_PATCH, EVENT_LOG, "llm", line)
 
 
 def _repo_issue_mismatch(search_result: dict, repo_path: str, repo_name: str = "") -> tuple[bool, str]:
@@ -596,6 +707,12 @@ def generate_patch(
             + "\n- ".join(editable_sources[:8])
             + "\n"
         )
+    em.emit(
+        AGENT_PATCH,
+        EVENT_LOG,
+        "context",
+        f"patch prompt stats: chars={len(prompt)}, context_files={len(context_files)}, editable_sources={len(editable_sources)}",
+    )
 
     models = _candidate_models(model)
     em.emit(AGENT_PATCH, EVENT_PROGRESS, "llm",
@@ -612,7 +729,7 @@ def generate_patch(
         em.emit(AGENT_PATCH, EVENT_PROGRESS, "llm",
                 f"Asking LLM ({candidate_model}) for code/test patch...")
         try:
-            raw = call_llm(PATCH_SYSTEM_PROMPT, prompt, candidate_model)
+            raw = call_llm(PATCH_SYSTEM_PROMPT, prompt, candidate_model, max_tokens=PATCH_MAX_TOKENS)
         except Exception as e:
             em.emit(AGENT_PATCH, EVENT_ERROR, "llm",
                     f"LLM error ({candidate_model}): {e}")
@@ -634,6 +751,13 @@ def generate_patch(
             "changes": [],
             "tests": [],
         })
+        candidate_patch = _normalize_patch_payload(candidate_patch)
+        em.emit(
+            AGENT_PATCH,
+            EVENT_LOG,
+            "llm",
+            f"{candidate_model} normalized keys={sorted(candidate_patch.keys())}",
+        )
         em.emit(
             AGENT_PATCH,
             EVENT_LOG,
@@ -644,6 +768,68 @@ def generate_patch(
 
         changes = candidate_patch.get("changes", [])
         tests = candidate_patch.get("tests", [])
+        _debug_patch_items(changes, "changes", em)
+        _debug_patch_items(tests, "tests", em)
+        if (not changes and not tests):
+            em.emit(
+                AGENT_PATCH,
+                EVENT_LOG,
+                "llm",
+                f"{candidate_model} returned empty changes/tests; requesting strict regeneration",
+            )
+            repair_prompt = (
+                prompt
+                + "\n\nYour previous response had empty `changes` and `tests`."
+                + "\nRegenerate now with NON-EMPTY `changes`."
+                + "\nOutput JSON only. Each change must include: file_path, action, content."
+                + "\nDo not use placeholders. Provide the final full file content for each changed file."
+            )
+            try:
+                repair_raw = call_llm(
+                    PATCH_SYSTEM_PROMPT,
+                    repair_prompt,
+                    candidate_model,
+                    max_tokens=PATCH_MAX_TOKENS,
+                )
+                repair_preview = repair_raw[:RAW_PREVIEW_CHARS].replace("\n", "\\n")
+                em.emit(
+                    AGENT_PATCH,
+                    EVENT_LOG,
+                    "llm",
+                    f"{candidate_model} repair raw preview: {repair_preview}",
+                )
+                repair_patch = _normalize_patch_payload(
+                    _parse_json_safe(
+                        repair_raw,
+                        {
+                            "branch_name_hint": "",
+                            "commit_title": "fix: patch generated by bugpilot",
+                            "pr_title": "fix: bug patch",
+                            "pr_body_markdown": "Automated patch draft generated by BugPilot.",
+                            "changes": [],
+                            "tests": [],
+                        },
+                    )
+                )
+                changes = repair_patch.get("changes", [])
+                tests = repair_patch.get("tests", [])
+                _debug_patch_items(changes, "repair_changes", em)
+                _debug_patch_items(tests, "repair_tests", em)
+                if changes or tests:
+                    candidate_patch = repair_patch
+                    em.emit(
+                        AGENT_PATCH,
+                        EVENT_LOG,
+                        "llm",
+                        f"{candidate_model} repair parse: changes={len(changes)}, tests={len(tests)}",
+                    )
+            except Exception as e:
+                em.emit(
+                    AGENT_PATCH,
+                    EVENT_LOG,
+                    "llm",
+                    f"{candidate_model} repair generation failed: {e}",
+                )
 
         # Debug candidate paths before writing.
         for item in (changes + tests)[:20]:
