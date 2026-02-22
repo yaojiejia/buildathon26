@@ -103,7 +103,7 @@ def main():
                         help="Use Anthropic Claude for this run")
     parser.add_argument("--claude-model", type=str, default=None,
                         help=f"Claude model override (default: ANTHROPIC_MODEL or {DEFAULT_ANTHROPIC_MODEL})")
-    parser.add_argument("--num-questions", type=int, default=5,
+    parser.add_argument("--num-questions", type=int, default=1,
                         help="Number of investigation questions for codebase search (1-10)")
     parser.add_argument("--reindex", action="store_true",
                         help="Force Nia to re-index the repo (deletes stale index first)")
