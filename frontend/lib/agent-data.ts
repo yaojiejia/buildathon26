@@ -1,10 +1,10 @@
-import { AgentEvent, AgentId, BugReport } from "./types"
+import { AgentEvent, AgentId, BugReport, InvestigationReport } from "./types"
 
 // ─── The bug we're investigating ─────────────────────────────
 export const bugReport: BugReport = {
   id: "GH-101",
   title: "Refund uses current product price instead of price-at-purchase",
-  repo: "yaojiejia/buildathon_example",
+  repo: "yaojiejia/buildathon_example_2",
   author: "yaojiejia",
   severity: "high",
   summary:
@@ -16,406 +16,213 @@ export const bugReport: BugReport = {
 let _id = 0
 const id = () => `evt-${++_id}`
 
+// ─── TRIAGE AGENT ────────────────────────────────────────────
+export const triageEvents: AgentEvent[] = [
+  {
+    id: id(), agentId: "triage", type: "action", delay: 400,
+    message: "Analyzing issue severity and affected module…",
+  },
+  {
+    id: id(), agentId: "triage", type: "query", delay: 1200,
+    message: "Classifying: \"Refund uses current product price instead of price-at-purchase\"",
+    detail: "Evaluating severity, likely module, and checking for duplicates",
+  },
+  {
+    id: id(), agentId: "triage", type: "result", delay: 1800,
+    message: "Severity: HIGH — financial accuracy affected",
+    detail: "likely_module: payments/refunds\nis_duplicate: No",
+  },
+  {
+    id: id(), agentId: "triage", type: "finding", delay: 1000,
+    message: "Refund system uses current prices instead of price_at_purchase — affects revenue and customer trust",
+  },
+  {
+    id: id(), agentId: "triage", type: "complete", delay: 600,
+    message: "Triage complete — HIGH severity, payments/refunds module",
+  },
+]
+
 // ─── CODEBASE SEARCH AGENT (RAG) ────────────────────────────
 export const codebaseSearchEvents: AgentEvent[] = [
   {
     id: id(), agentId: "codebase_search", type: "action", delay: 600,
-    message: "Indexing acme/payment-service @ main (HEAD: a3f8c2d)…",
+    message: "Generating investigation questions for codebase search…",
   },
   {
     id: id(), agentId: "codebase_search", type: "query", delay: 2000,
-    message: "RAG query: \"stripe webhook handler duplicate charge idempotency\"",
-    detail: "Embedding search across 1,847 files in repository",
+    message: "Q1: Where is process_refund implemented and how does it calculate refund amounts?",
+    detail: "Searching repository via Nia RAG",
   },
   {
     id: id(), agentId: "codebase_search", type: "result", delay: 1800,
-    message: "Top 5 results ranked by semantic similarity",
-    detail: "1. src/api/webhooks/stripe.ts (0.94)\n2. src/services/charges.ts (0.89)\n3. src/db/migrations/20260215_add_charges_table.sql (0.82)\n4. src/middleware/idempotency.ts (0.78) — DELETED in v2.14.0\n5. tests/webhooks/stripe.test.ts (0.71)",
+    message: "Found process_refund in services.py at line 98",
+    detail: "Function calculates refund by looking up current product prices with product.price * item.quantity instead of using item.price_at_purchase",
   },
   {
     id: id(), agentId: "codebase_search", type: "file_open", delay: 1600,
-    message: "Opening src/api/webhooks/stripe.ts",
-    detail: `export async function handleStripeWebhook(req: Request) {
-  const event = stripe.webhooks.constructEvent(
-    await req.text(),
-    req.headers.get("stripe-signature")!,
-    env.STRIPE_WEBHOOK_SECRET
-  );
-
-  switch (event.type) {
-    case "charge.succeeded":
-      await processCharge(event.data.object);
-      break;
-  }
-
-  return new Response("OK", { status: 200 });
-}`,
+    message: "Opening services.py — process_refund function",
+    detail: `def process_refund(db: Session, order_id: int) -> dict:
+    """Process a full refund for an order.
+    The refund amount should be the TOTAL that the customer
+    actually paid at the time of purchase (order.total).
+    """
+    order = db.query(Order).filter(Order.id == order_id).first()
+    refund_amount = 0.0
+    for item in order.items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        if product:
+            refund_amount += product.price * item.quantity  # BUG: uses current price
+            product.stock += item.quantity`,
   },
   {
-    id: id(), agentId: "codebase_search", type: "error", delay: 1400,
-    message: "⚠ No idempotency check before processCharge() — event processed unconditionally",
+    id: id(), agentId: "codebase_search", type: "finding", delay: 1400,
+    message: "BUG: process_refund uses product.price (current) instead of item.price_at_purchase (historical)",
   },
   {
     id: id(), agentId: "codebase_search", type: "file_open", delay: 1200,
-    message: "Opening src/services/charges.ts → tracing processCharge()",
-    detail: `export async function processCharge(charge: Stripe.Charge) {
-  const existing = await db.charges.findByStripeId(charge.id);
-  if (existing) {
-    logger.info("Charge already recorded", { chargeId: charge.id });
-    return;
-  }
-  await db.charges.create({
-    stripeChargeId: charge.id, amount: charge.amount,
-    customerId: charge.customer, status: charge.status,
-  });
-  await billingService.updateInvoice(charge.customer, charge.id);
-}`,
+    message: "Opening models.py — OrderItem model",
+    detail: `class OrderItem(Base):
+    __tablename__ = "order_items"
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    price_at_purchase = Column(Float, nullable=False)  # correct price stored here`,
   },
   {
-    id: id(), agentId: "codebase_search", type: "finding", delay: 1800,
-    message: "Race condition in processCharge() — no SELECT FOR UPDATE, no UNIQUE constraint on stripe_charge_id",
-  },
-  {
-    id: id(), agentId: "codebase_search", type: "query", delay: 1200,
-    message: "git log --oneline v2.13.0..v2.14.0 -- src/api/webhooks/ src/middleware/",
+    id: id(), agentId: "codebase_search", type: "query", delay: 1000,
+    message: "Grep: price_at_purchase|order\\.total.*refund",
+    detail: "3 matches found across services.py, routes.py, models.py",
   },
   {
     id: id(), agentId: "codebase_search", type: "result", delay: 1600,
-    message: "Culprit: commit b7e2f1a \"refactor: simplify webhook handler\" by @dev-marcus",
-    detail: "Removed src/middleware/idempotency.ts which contained Redis SETNX guard with 24h TTL.",
-  },
-  {
-    id: id(), agentId: "codebase_search", type: "signal", delay: 600,
-    message: "→ Root Cause Synthesis: Commit b7e2f1a removed Redis idempotency, DB has no unique constraint",
-    targetAgent: "root_cause",
+    message: "price_at_purchase is correctly stored during order creation but ignored during refunds",
+    detail: "services.py line 59: price_at_purchase=product.price (set at order time)\nmodels.py line 24: price_at_purchase = Column(Float, nullable=False)\nroutes.py: price_at_purchase exposed in API responses",
   },
   {
     id: id(), agentId: "codebase_search", type: "complete", delay: 800,
-    message: "Codebase search complete — webhook handler, charge service, and culprit commit identified",
+    message: "Codebase search complete — root cause identified in services.py line 98",
   },
 ]
 
-// ─── DOCS AGENT ──────────────────────────────────────────────
-export const docsAgentEvents: AgentEvent[] = [
+// ─── DOC ANALYSIS AGENT ─────────────────────────────────────
+export const docAnalysisEvents: AgentEvent[] = [
   {
-    id: id(), agentId: "docs", type: "action", delay: 800,
-    message: "Indexing internal documentation and runbooks…",
+    id: id(), agentId: "doc_analysis", type: "action", delay: 800,
+    message: "Collecting markdown documentation from repository…",
   },
   {
-    id: id(), agentId: "docs", type: "query", delay: 2000,
-    message: 'Searching: "payment" OR "webhook" OR "idempotency" in Confluence & Notion…',
+    id: id(), agentId: "doc_analysis", type: "query", delay: 2000,
+    message: "Searching for documentation related to refund system architecture…",
+    detail: "Scanning README.md and any internal docs via Nia",
   },
   {
-    id: id(), agentId: "docs", type: "result", delay: 2200,
-    message: "Found 3 relevant documents",
-    detail: "1. [Runbook] Payment Service Incident Response\n2. [ADR-019] Webhook Processing Architecture\n3. [Guide] Stripe Integration Best Practices",
+    id: id(), agentId: "doc_analysis", type: "result", delay: 2200,
+    message: "Found 1 relevant document",
+    detail: "1. README.md — Provides overview of refund system architecture",
   },
   {
-    id: id(), agentId: "docs", type: "file_open", delay: 1600,
-    message: "Reading ADR-019: Webhook Processing Architecture",
-    detail: `## Decision
-We use a Redis-based idempotency layer to deduplicate Stripe webhooks.
-Each event ID is stored with SETNX and a 24-hour TTL.
-
-## Status: ACCEPTED (2025-08-14)
-## Author: @lead-eng-julia
-
-## Consequences
-- All webhook handlers MUST check Redis before processing
-- If Redis is unavailable, fall back to DB-level dedup with SELECT FOR UPDATE`,
+    id: id(), agentId: "doc_analysis", type: "file_open", delay: 1600,
+    message: "Reading README.md — system architecture overview",
+    detail: `## Architecture
+The system processes refunds through services.py.
+Business logic: refund amounts should match what the customer paid.
+The OrderItem model stores price_at_purchase for historical accuracy.`,
   },
   {
-    id: id(), agentId: "docs", type: "error", delay: 1200,
-    message: "⚠ ADR-019 mandates Redis idempotency — commit b7e2f1a violated this architecture decision",
+    id: id(), agentId: "doc_analysis", type: "finding", delay: 1200,
+    message: "README confirms price_at_purchase should be used for refund calculations — code contradicts documentation",
   },
   {
-    id: id(), agentId: "docs", type: "result", delay: 1800,
-    message: "Stripe docs: \"Webhook endpoints might occasionally receive the same event more than once\"",
-    detail: "stripe.com/docs/webhooks#handle-duplicate-events:\n\"Make your event processing idempotent. Use the event ID to check if you've already processed it.\"",
-  },
-  {
-    id: id(), agentId: "docs", type: "file_open", delay: 1400,
-    message: "Reading Runbook: Payment Service Incident Response",
-    detail: `## Duplicate Charges — Severity P0
-1. Pause webhook processing (WEBHOOK_ENABLED=false)
-2. Run dedup script: scripts/dedup-charges.ts
-3. Issue refunds for affected customers
-4. Deploy fix with idempotency guard restored`,
-  },
-  {
-    id: id(), agentId: "docs", type: "finding", delay: 1000,
-    message: "Runbook has exact remediation steps — dedup script at scripts/dedup-charges.ts",
-  },
-  {
-    id: id(), agentId: "docs", type: "signal", delay: 600,
-    message: "→ Root Cause Synthesis: ADR-019 mandates Redis SETNX — removed code was architecturally required",
-    targetAgent: "root_cause",
-  },
-  {
-    id: id(), agentId: "docs", type: "complete", delay: 1000,
-    message: "Documentation review complete — ADR violation confirmed, runbook remediation available",
+    id: id(), agentId: "doc_analysis", type: "complete", delay: 1000,
+    message: "Documentation analysis complete — architecture violation confirmed",
   },
 ]
 
-// ─── LOGS AGENT ──────────────────────────────────────────────
-export const logsAgentEvents: AgentEvent[] = [
+// ─── LOG ANALYSIS AGENT ─────────────────────────────────────
+export const logAnalysisEvents: AgentEvent[] = [
   {
-    id: id(), agentId: "logs", type: "action", delay: 400,
-    message: "Connecting to Datadog log stream…",
+    id: id(), agentId: "log_analysis", type: "action", delay: 400,
+    message: "Connecting to Sentry for log analysis…",
   },
   {
-    id: id(), agentId: "logs", type: "query", delay: 1200,
-    message: "Querying: service:payment-service status:error @timestamp:[2026-02-18 TO *]",
-    detail: "Scope: 48h window since v2.14.0 deploy",
+    id: id(), agentId: "log_analysis", type: "query", delay: 1200,
+    message: "Generating search keywords from issue context…",
+    detail: "Keywords: process_refund, refund_amount, price_at_purchase, order.total",
   },
   {
-    id: id(), agentId: "logs", type: "result", delay: 1800,
-    message: "Found 1,247 error-level entries across 3 pods",
-    detail: "pod-payment-7f8b4 (612) | pod-payment-9a2c1 (401) | pod-payment-3d5e8 (234)",
+    id: id(), agentId: "log_analysis", type: "result", delay: 1800,
+    message: "Querying Sentry for events matching refund-related errors…",
+    detail: "Searching for: process_refund errors, refund amount mismatches, price calculation issues",
   },
   {
-    id: id(), agentId: "logs", type: "query", delay: 1400,
-    message: "Filtering for duplicate charge patterns: grouping by idempotency_key…",
+    id: id(), agentId: "log_analysis", type: "error", delay: 1400,
+    message: "⚠ Sentry not fully configured — limited log data available",
+    detail: "Set SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT for full log analysis",
   },
   {
-    id: id(), agentId: "logs", type: "error", delay: 2000,
-    message: "⚠ 847 webhook events lack idempotency_key field entirely",
-    detail: '{"event":"charge.created","amount":4999,"customer":"cus_R8x...","idempotency_key":null}',
-  },
-  {
-    id: id(), agentId: "logs", type: "result", delay: 1800,
-    message: "Stripe webhook evt_1Ox... delivered twice — retried after 200ms timeout",
-    detail: "First: 14:22:01.234Z (200 in 847ms)\nSecond: 14:22:01.447Z (200 in 312ms)\nBoth processed → 2 charges",
-  },
-  {
-    id: id(), agentId: "logs", type: "finding", delay: 1200,
-    message: "ROOT CAUSE CANDIDATE: Webhook handler processes retried events as new events",
-  },
-  {
-    id: id(), agentId: "logs", type: "result", delay: 1800,
-    message: "Blast radius: 142 customers, 168 duplicate pairs, $23,847 in overcharges",
-  },
-  {
-    id: id(), agentId: "logs", type: "signal", delay: 600,
-    message: "→ Root Cause Synthesis: 142 customers affected, 200ms retry window exploitable",
-    targetAgent: "root_cause",
-  },
-  {
-    id: id(), agentId: "logs", type: "complete", delay: 1000,
-    message: "Log analysis complete — blast radius quantified, root cause pattern identified",
-  },
-]
-
-// ─── ROOT CAUSE SYNTHESIS AGENT ──────────────────────────────
-export const rootCauseEvents: AgentEvent[] = [
-  {
-    id: id(), agentId: "root_cause", type: "action", delay: 2000,
-    message: "Waiting for upstream agent findings…",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "action", delay: 8000,
-    message: "Received findings from Codebase Search, Docs, and Logs agents",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "query", delay: 1400,
-    message: "Cross-referencing evidence from all agents…",
-    detail: "Codebase: commit b7e2f1a removed idempotency middleware\nDocs: ADR-019 violation\nLogs: 847 unguarded webhooks, 142 customers affected",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "finding", delay: 2000,
-    message: "ROOT CAUSE CONFIRMED: Removed Redis SETNX guard + missing DB UNIQUE constraint",
-    detail: "Commit b7e2f1a removed the idempotency middleware that guarded against Stripe webhook retries. The charges table lacks a UNIQUE constraint on stripe_charge_id, allowing concurrent inserts. 200ms retry window = exploitable race condition.",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "result", delay: 1600,
-    message: "Confidence: 96% — reproduced pattern matches production logs exactly",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "action", delay: 1200,
-    message: "Generating fix strategy…",
-    detail: "1. Restore Redis SETNX idempotency check (fast path)\n2. Add UNIQUE constraint on charges.stripe_charge_id (safety net)\n3. Run dedup script + issue refunds for 142 affected customers",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "signal", delay: 800,
-    message: "→ Patch Generation: Fix strategy ready — restore SETNX + add UNIQUE constraint",
-    targetAgent: "patch_gen",
-  },
-  {
-    id: id(), agentId: "root_cause", type: "complete", delay: 600,
-    message: "Root cause synthesis complete — high confidence, fix strategy dispatched",
+    id: id(), agentId: "log_analysis", type: "complete", delay: 1000,
+    message: "Log analysis complete — Sentry configuration needed for deeper analysis",
   },
 ]
 
 // ─── PATCH GENERATION AGENT ─────────────────────────────────
-export const patchGenEvents: AgentEvent[] = [
+export const patchGenerationEvents: AgentEvent[] = [
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 1000,
-    message: "Waiting for root cause synthesis…",
+    id: id(), agentId: "patch_generation", type: "action", delay: 1000,
+    message: "Building patch context from prior agent findings…",
   },
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 14000,
-    message: "Received fix strategy from Root Cause Synthesis agent",
+    id: id(), agentId: "patch_generation", type: "action", delay: 2000,
+    message: "Reading suspect files: services.py, models.py",
+    detail: "Gathering context for code patch generation",
   },
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 1600,
-    message: "Creating branch: fix/gh-2847-webhook-idempotency",
+    id: id(), agentId: "patch_generation", type: "query", delay: 2400,
+    message: "Asking LLM to generate fix patch…",
+    detail: "Fix: Replace product.price with item.price_at_purchase in process_refund",
   },
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 2000,
-    message: "Generating patch: restore src/middleware/idempotency.ts",
-    detail: `export async function idempotencyGuard(eventId: string): Promise<boolean> {
-  const key = \`webhook:idem:\${eventId}\`;
-  const result = await redis.set(key, "1", { NX: true, EX: 86400 });
-  return result !== null; // true = first time, false = duplicate
-}`,
+    id: id(), agentId: "patch_generation", type: "action", delay: 3000,
+    message: "Generating patch for services.py",
+    detail: `--- a/services.py
++++ b/services.py
+@@ -98,7 +98,7 @@
+     refund_amount = 0.0
+     for item in order.items:
+-        product = db.query(Product).filter(Product.id == item.product_id).first()
+-        if product:
+-            refund_amount += product.price * item.quantity
++        refund_amount += item.price_at_purchase * item.quantity
++        product = db.query(Product).filter(Product.id == item.product_id).first()
++        if product:
+             product.stock += item.quantity`,
   },
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 1800,
-    message: "Generating migration: add UNIQUE constraint on charges.stripe_charge_id",
-    detail: `ALTER TABLE charges
-  ADD CONSTRAINT charges_stripe_charge_id_unique
-  UNIQUE (stripe_charge_id);`,
+    id: id(), agentId: "patch_generation", type: "action", delay: 1800,
+    message: "Creating branch: bugpilot/fix-refund-price-calculation",
   },
   {
-    id: id(), agentId: "patch_gen", type: "action", delay: 1400,
-    message: "Generating 3 regression tests for idempotency…",
-    detail: "test_single_webhook_processed\ntest_duplicate_webhook_rejected\ntest_concurrent_webhooks_single_charge",
+    id: id(), agentId: "patch_generation", type: "success", delay: 1600,
+    message: "✓ Patch generated — 1 file changed, fix uses price_at_purchase",
   },
   {
-    id: id(), agentId: "patch_gen", type: "success", delay: 1600,
-    message: "✓ Patch generated — 4 files changed, 87 additions, 3 deletions",
+    id: id(), agentId: "patch_generation", type: "action", delay: 1200,
+    message: "Creating draft PR: fix: use price_at_purchase for refunds instead of current prices",
   },
   {
-    id: id(), agentId: "patch_gen", type: "signal", delay: 600,
-    message: "→ CI Status: PR #2848 created, awaiting CI pipeline",
-    targetAgent: "ci_status",
-  },
-  {
-    id: id(), agentId: "patch_gen", type: "complete", delay: 800,
-    message: "Patch generation complete — PR #2848 opened on fix/gh-2847-webhook-idempotency",
-  },
-]
-
-// ─── CI STATUS TRACKING ─────────────────────────────────────
-export const ciStatusEvents: AgentEvent[] = [
-  {
-    id: id(), agentId: "ci_status", type: "action", delay: 1000,
-    message: "Waiting for patch generation…",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "action", delay: 20000,
-    message: "Monitoring CI pipeline for PR #2848…",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "action", delay: 2000,
-    message: "CI triggered: GitHub Actions workflow 'test-and-lint' running…",
-    detail: "Jobs: lint, unit-tests, integration-tests, migration-check",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "success", delay: 2400,
-    message: "✓ Lint passed (eslint + prettier)",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "success", delay: 3000,
-    message: "✓ Unit tests passed (47/47 including 3 new idempotency tests)",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "success", delay: 2800,
-    message: "✓ Integration tests passed (12/12)",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "success", delay: 1800,
-    message: "✓ Migration check passed — UNIQUE constraint is safe to apply",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "signal", delay: 600,
-    message: "→ CodeRabbit: CI green, PR ready for review",
-    targetAgent: "coderabbit",
-  },
-  {
-    id: id(), agentId: "ci_status", type: "complete", delay: 800,
-    message: "CI pipeline passed — all 4 jobs green",
-  },
-]
-
-// ─── CODERABBIT REVIEW INTEGRATION ──────────────────────────
-export const coderabbitEvents: AgentEvent[] = [
-  {
-    id: id(), agentId: "coderabbit", type: "action", delay: 1000,
-    message: "Waiting for CI to pass…",
-  },
-  {
-    id: id(), agentId: "coderabbit", type: "action", delay: 30000,
-    message: "Submitting PR #2848 to CodeRabbit for automated review…",
-  },
-  {
-    id: id(), agentId: "coderabbit", type: "result", delay: 3000,
-    message: "CodeRabbit review received — 1 suggestion, 0 blocking issues",
-    detail: "Suggestion: Consider adding a comment explaining the 86400s (24h) TTL choice in idempotency guard.\nSeverity: nitpick",
-  },
-  {
-    id: id(), agentId: "coderabbit", type: "signal", delay: 800,
-    message: "→ Review Response: CodeRabbit has 1 nitpick suggestion to address",
-    targetAgent: "review_response",
-  },
-  {
-    id: id(), agentId: "coderabbit", type: "complete", delay: 600,
-    message: "CodeRabbit review complete — no blocking issues, 1 nitpick forwarded",
-  },
-]
-
-// ─── REVIEW RESPONSE AGENT (SAFE AUTO-ITERATION) ────────────
-export const reviewResponseEvents: AgentEvent[] = [
-  {
-    id: id(), agentId: "review_response", type: "action", delay: 1000,
-    message: "Waiting for CodeRabbit review…",
-  },
-  {
-    id: id(), agentId: "review_response", type: "action", delay: 34000,
-    message: "Processing CodeRabbit feedback on PR #2848…",
-  },
-  {
-    id: id(), agentId: "review_response", type: "result", delay: 1600,
-    message: "Evaluating suggestion: add TTL comment to idempotency guard",
-    detail: "Classification: nitpick (non-blocking)\nRisk: none — documentation-only change\nAuto-iteration: SAFE to apply",
-  },
-  {
-    id: id(), agentId: "review_response", type: "action", delay: 1400,
-    message: "Applying suggestion: adding inline comment for TTL rationale…",
-    detail: `// 24h TTL matches Stripe's webhook retry window (per stripe.com/docs/webhooks)
-const result = await redis.set(key, "1", { NX: true, EX: 86400 });`,
-  },
-  {
-    id: id(), agentId: "review_response", type: "success", delay: 1200,
-    message: "✓ Pushed fix-up commit to PR #2848",
-  },
-  {
-    id: id(), agentId: "review_response", type: "success", delay: 2000,
-    message: "✓ CodeRabbit re-review: all suggestions addressed, approved",
-  },
-  {
-    id: id(), agentId: "review_response", type: "success", delay: 1000,
-    message: "✓ PR #2848 ready to merge — all checks passed, review approved",
-  },
-  {
-    id: id(), agentId: "review_response", type: "complete", delay: 800,
-    message: "Review response complete — PR approved and merge-ready",
+    id: id(), agentId: "patch_generation", type: "complete", delay: 800,
+    message: "Patch generation complete — PR created with fix",
   },
 ]
 
 // ─── Export all events grouped by agent ──────────────────────
-export const triageEvents: AgentEvent[] = []
-
 export const allAgentEvents: Record<AgentId, AgentEvent[]> = {
   triage: triageEvents,
   codebase_search: codebaseSearchEvents,
-  docs: docsAgentEvents,
-  logs: logsAgentEvents,
-  root_cause: rootCauseEvents,
-  patch_gen: patchGenEvents,
-  ci_status: ciStatusEvents,
-  coderabbit: coderabbitEvents,
-  review_response: reviewResponseEvents,
+  doc_analysis: docAnalysisEvents,
+  log_analysis: logAnalysisEvents,
+  patch_generation: patchGenerationEvents,
 }
 
 // ─── Agent metadata ──────────────────────────────────────────
@@ -432,46 +239,91 @@ export const agentMeta: Record<AgentId, { name: string; icon: string; color: str
     color: "text-blue-400",
     description: "RAG-powered search across the repository to find relevant code",
   },
-  docs: {
-    name: "Docs Agent",
+  doc_analysis: {
+    name: "Doc Analysis",
     icon: "BookOpen",
     color: "text-emerald-400",
-    description: "Checks internal runbooks, ADRs, and documentation for context",
+    description: "Analyzes repository documentation and Slack messages for context",
   },
-  logs: {
-    name: "Logs Agent",
+  log_analysis: {
+    name: "Log Analysis",
     icon: "ScrollText",
     color: "text-amber-400",
-    description: "Queries logging systems for errors and patterns related to the bug",
+    description: "Queries Sentry for errors and log patterns related to the bug",
   },
-  root_cause: {
-    name: "Root Cause Synthesis",
-    icon: "Brain",
-    color: "text-rose-400",
-    description: "Cross-references all agent findings to determine root cause",
-  },
-  patch_gen: {
+  patch_generation: {
     name: "Patch Generation",
     icon: "Wrench",
     color: "text-cyan-400",
-    description: "Generates code patches, migrations, and regression tests",
+    description: "Generates code patches, creates branches, and opens draft PRs",
   },
-  ci_status: {
-    name: "CI Status Tracking",
-    icon: "Activity",
-    color: "text-violet-400",
-    description: "Monitors CI pipeline and reports job statuses",
+}
+
+// ─── Demo report (used when running in demo/mock mode) ───────
+export const demoReport: InvestigationReport = {
+  issue: {
+    title: bugReport.title,
+    body: bugReport.summary,
+    repo: bugReport.repo,
   },
-  coderabbit: {
-    name: "CodeRabbit Review",
-    icon: "Rabbit",
-    color: "text-orange-400",
-    description: "Routes PR through CodeRabbit for automated code review",
+  triage: {
+    severity: "high",
+    likely_module: "payments/refunds",
+    is_duplicate: false,
+    duplicate_of: null,
+    summary: "Refund system calculates wrong amounts by using current product prices instead of original purchase prices. When product prices change after purchase, customers get incorrect refund amounts. The code ignores the stored price_at_purchase field and order.total, contradicting its own documentation.",
   },
-  review_response: {
-    name: "Review Response",
-    icon: "MessageSquareReply",
-    color: "text-pink-400",
-    description: "Safely auto-iterates on review feedback and addresses suggestions",
+  investigation: {
+    suspect_files: [
+      {
+        file_path: "services.py",
+        why_relevant: "Contains the buggy process_refund function that calculates refund amounts using current product prices instead of the price_at_purchase stored in order items.",
+        lines_referenced: [98],
+        snippet: "refund_amount += product.price * item.quantity  # BUG: uses current price",
+      },
+      {
+        file_path: "models.py",
+        why_relevant: "Defines the OrderItem model with the price_at_purchase field that stores the correct price but is ignored by process_refund.",
+        lines_referenced: [24],
+        snippet: "price_at_purchase = Column(Float, nullable=False)",
+      },
+    ],
+    reasoning: "The bug is in the process_refund function in services.py at line 98. The function documentation states that refunds should use 'the TOTAL that the customer actually paid', but the implementation calculates refunds by querying current product prices with 'product.price * item.quantity' instead of using the stored 'price_at_purchase' field from the OrderItem model.",
+    confidence: "high",
+    questions_asked: [
+      "Where is process_refund implemented and how does it calculate refund amounts?",
+      "How is price_at_purchase defined in the data models?",
+    ],
+    evidence_collected: [],
+  },
+  documentation: {
+    relevant_docs: [
+      {
+        file_path: "README.md",
+        why_relevant: "Provides overview of the refund system architecture and confirms refund processing logic is in services.py",
+        key_sections: ["business logic", "services.py"],
+      },
+    ],
+    reasoning: "README confirms price_at_purchase should be used for refund calculations.",
+    confidence: "low",
+    total_docs_scanned: 1,
+    relevant_messages: [],
+  },
+  log_analysis: {
+    suspicious_logs: [],
+    patterns_found: [],
+    timeline: "Sentry not configured — log analysis skipped.",
+    confidence: "none",
+    total_events_scanned: 0,
+    error: "SENTRY_AUTH_TOKEN, SENTRY_ORG, or SENTRY_PROJECT not set",
+  },
+  patch_generation: {
+    status: "ok",
+    changed_files: ["services.py"],
+    diff: "- refund_amount += product.price * item.quantity\n+ refund_amount += item.price_at_purchase * item.quantity",
+    pr_title: "fix: use price_at_purchase for refunds instead of current prices",
+    pr_body_markdown: "Fixed process_refund to use stored price_at_purchase values instead of current product prices.",
+    draft_pr: { status: "not_attempted" },
+    attempted_models: ["claude-sonnet-4-20250514"],
   },
 }

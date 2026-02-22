@@ -8,11 +8,7 @@ import {
   Search,
   BookOpen,
   ScrollText,
-  Brain,
   Wrench,
-  Activity,
-  Rabbit,
-  MessageSquareReply,
   Shield,
   Loader2,
   CheckCircle2,
@@ -25,11 +21,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Search,
   BookOpen,
   ScrollText,
-  Brain,
   Wrench,
-  Activity,
-  Rabbit,
-  MessageSquareReply,
   Shield,
 }
 
