@@ -270,6 +270,7 @@ export type SlackCasePayload = {
   summary: string
   repoLink?: string | null
   hasGithubIssue: boolean
+  investigateUrl?: string
 }
 
 /**
@@ -277,7 +278,7 @@ export type SlackCasePayload = {
  * If no GitHub issue linked, include "Create GitHub issue" button.
  */
 export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, unknown>[] {
-  const { caseId, title, summary, repoLink, hasGithubIssue } = payload
+  const { caseId, title, summary, repoLink, hasGithubIssue, investigateUrl } = payload
   const blocks: Record<string, unknown>[] = [
     {
       type: "header",
@@ -297,8 +298,16 @@ export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, 
   const cursorOpenUrl = repoLink
     ? (process.env.CURSOR_OPEN_URL || `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`)
     : null
+  const investigateButton: Record<string, unknown> = investigateUrl
+    ? {
+        type: "button",
+        text: { type: "plain_text", text: "Investigate", emoji: true },
+        action_id: "investigate",
+        url: investigateUrl,
+      }
+    : { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" }
   const row1: Record<string, unknown>[] = [
-    { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" },
+    investigateButton,
     { type: "button", text: { type: "plain_text", text: "Assign Human", emoji: true }, action_id: "assign_human" },
   ]
   if (cursorOpenUrl) {

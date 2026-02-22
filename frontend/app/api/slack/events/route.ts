@@ -74,7 +74,17 @@ function parseIssueRef(
   return null
 }
 
-async function handleAppMention(event: SlackEvent): Promise<void> {
+/**
+ * Derive public-facing base URL from request (supports x-forwarded-* behind proxies).
+ */
+function getBaseUrl(request: Request): string {
+  const fwdProto = request.headers.get("x-forwarded-proto") ?? "http"
+  const fwdHost =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? new URL(request.url).host
+  return `${fwdProto}://${fwdHost}`
+}
+
+async function handleAppMention(event: SlackEvent, baseUrl: string): Promise<void> {
   const channel = event.channel
   const user = event.user
   const text = event.text ?? ""
@@ -179,6 +189,7 @@ async function handleAppMention(event: SlackEvent): Promise<void> {
       ? `https://github.com/${caseRecord.repo}`
       : null,
     hasGithubIssue: caseRecord.githubIssueId != null,
+    investigateUrl: `${baseUrl}/case/${caseRecord.id}`,
   }
   const blocks = buildSlackCaseBlocks(payload)
   await postBlocksInThread(
@@ -242,7 +253,8 @@ export async function POST(request: Request) {
     }
     console.log("[Slack events] event_callback", event.type, event.channel, event.ts)
     if (event.type === "app_mention") {
-      void handleAppMention(event).catch((err) => {
+      const baseUrl = getBaseUrl(request)
+      void handleAppMention(event, baseUrl).catch((err) => {
         console.error("[Slack events] handleAppMention failed", err)
       })
     }
