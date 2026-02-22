@@ -33,7 +33,7 @@ def main():
     parser.add_argument("--body", type=str, help="Issue body/description")
     parser.add_argument("--repo", type=str, default="", help="Repository name (optional)")
     parser.add_argument("--stdin", action="store_true", help="Read JSON input from stdin")
-    parser.add_argument("--model", type=str, default="claude-sonnet-4-20250514", help="Claude model to use")
+    parser.add_argument("--model", type=str, default="claude-opus-4-5", help="Claude model to use")
     args = parser.parse_args()
 
     # ── Get issue data ───────────────────────────────────────────
@@ -80,4 +80,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

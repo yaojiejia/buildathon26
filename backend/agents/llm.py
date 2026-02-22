@@ -17,7 +17,7 @@ Configuration (via .env or environment):
 
 Supported models:
     - nvidia/llama-3.1-nemotron-70b-instruct  (NVIDIA NIM)
-    - claude-sonnet-4-20250514                 (Anthropic)
+    - claude-opus-4-5                           (Anthropic)
 """
 
 import os
@@ -29,7 +29,7 @@ PROVIDER_ANTHROPIC = "anthropic"
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NVIDIA_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1"
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-5"
 
 
 def get_provider() -> str:
