@@ -1,0 +1,41 @@
+{
+  "status": "ok",
+  "repo_path": "/home/alexj/buildathon26/backend/agents/workspaces/yaojiejia_buildathon_example_2/repo",
+  "is_temp_repo": false,
+  "branch": "bugpilot/fix-refund-price-at-purchase-20260222-041858",
+  "model_used": "claude-opus-4-5",
+  "attempted_models": [
+    "claude-opus-4-5"
+  ],
+  "attempt_debug": [
+    {
+      "model": "claude-opus-4-5",
+      "parsed_changes": 1,
+      "parsed_tests": 1,
+      "written_files": [
+        "services.py",
+        "tests/test_refund.py"
+      ],
+      "diff_len": 1150,
+      "status": [
+        " M services.py",
+        "?? tests/"
+      ]
+    }
+  ],
+  "commit_sha": "ece7b7b0f28bfb5cde89d8e5ad80418f8dcc658d",
+  "changed_files": [
+    "services.py",
+    "tests/test_refund.py"
+  ],
+  "diff": "diff --git a/services.py b/services.py\nindex ac12bc5..edfb5d0 100644\n--- a/services.py\n+++ b/services.py\n@@ -175,16 +175,16 @@ def process_refund(db: Session, order_id: int) -> dict:\n     if order.status == \"refunded\":\n         raise ValueError(\"Order already refunded\")\n \n-    # Calculate refund by looking up each product's current price\n-    refund_amount = 0.0\n+    # Use the total that the customer actually paid at purchase time\n+    refund_amount = order.total\n+\n+    # Restore stock for each item\n     for item in order.items:\n         product = db.query(Product).filter(Product.id == item.product_id).first()\n         if product:\n-            refund_amount += product.price * item.quantity\n-            # Restore stock\n             product.stock += item.quantity\n \n-    # Deduct loyalty points\n+    # Deduct loyalty points based on what was actually paid\n     customer = order.customer\n     customer.loyalty_points -= int(refund_amount)\n     if customer.loyalty_points < 0:\n@@ -207,4 +207,3 @@ def process_refund(db: Session, order_id: int) -> dict:\n         \"refund_amount\": round(refund_amount, 2),\n         \"status\": \"refunded\",\n     }\n-\n",
+  "pr_title": "fix: use order.total instead of current product prices for refund calculation",
+  "pr_body_markdown": "## Summary\n\nFixes a bug where `process_refund` was calculating refund amounts using current product prices instead of the amount the customer actually paid.\n\n## Problem\n\nThe `process_refund` function in `services.py` was querying the `Product` table to get current prices and multiplying by quantity. This caused incorrect refund amounts when:\n- Product prices changed after the order was placed\n- Discounts (loyalty tier or promo codes) were applied at purchase time\n\nExample from logs: A customer paid $63.99 (after 20% WELCOME20 discount) but received a $79.99 refund.\n\n## Solution\n\nThe fix uses `order.total` directly for the refund amount, as specified in the function's docstring:\n> \"The refund amount should be the TOTAL that the customer actually paid at the time of purchase (order.total)\"\n\nThe stock restoration logic still iterates over order items to restore the correct quantities.\n\n## Changes\n\n- Modified `process_refund()` to use `order.total` for refund amount\n- Removed unnecessary product price queries for refund calculation\n- Added unit tests to verify correct refund behavior with discounts and price changes",
+  "draft_pr": {
+    "status": "created",
+    "url": "https://github.com/yaojiejia/buildathon_example_2/pull/6"
+  },
+  "push_branch": {
+    "status": "pushed"
+  }
+}

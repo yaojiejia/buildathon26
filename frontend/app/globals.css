@@ -3,7 +3,32 @@
 @tailwind utilities;
 
 @layer base {
+  /* ─── Light mode ──────────────────────────────── */
   :root {
+    --background: 220 20% 97%;
+    --foreground: 224 14% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 14% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 14% 16%;
+    --primary: 224 14% 16%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 224 14% 16%;
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 46%;
+    --accent: 220 14% 89%;
+    --accent-foreground: 224 14% 16%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: 224 14% 16%;
+    --radius: 0.625rem;
+  }
+
+  /* ─── Dark mode ───────────────────────────────── */
+  .dark {
     --background: 228 14% 5%;
     --foreground: 220 10% 86%;
     --card: 228 14% 7%;
@@ -33,71 +58,187 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-inter), system-ui, sans-serif;
+  }
+  code,
+  pre {
+    font-family: var(--font-mono), "JetBrains Mono", monospace;
   }
 }
 
 /* Dot grid background */
 .bg-grid {
-  background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px
+  );
   background-size: 32px 32px;
 }
 
 /* Radial fade mask */
 .mask-radial {
-  mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 50% at 50% 50%, black 40%, transparent 100%);
-}
-
-/* Animated orb glow */
-@keyframes orb-float {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  25% { transform: translate(30px, -20px) scale(1.05); }
-  50% { transform: translate(-20px, 15px) scale(0.95); }
-  75% { transform: translate(15px, 25px) scale(1.02); }
-}
-
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
-}
-
-.animate-orb { animation: orb-float 20s ease-in-out infinite; }
-.animate-orb-delayed { animation: orb-float 25s ease-in-out 5s infinite; }
-.animate-pulse-subtle { animation: pulse-subtle 4s ease-in-out infinite; }
-
-/* Scanline overlay */
-.scanline::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(255,255,255,0.008) 2px,
-    rgba(255,255,255,0.008) 4px
+  mask-image: radial-gradient(
+    ellipse 70% 50% at 50% 50%,
+    black 40%,
+    transparent 100%
   );
-  pointer-events: none;
+  -webkit-mask-image: radial-gradient(
+    ellipse 70% 50% at 50% 50%,
+    black 40%,
+    transparent 100%
+  );
 }
 
-/* Fade out label animation */
-@keyframes fadeOutLabel {
-  0% {
-    opacity: 1;
-    transform: translateX(0) translateY(-50%) scale(1);
-  }
-  70% {
-    opacity: 1;
-    transform: translateX(0) translateY(-50%) scale(1);
-  }
-  100% {
+/* Event row entry animation */
+@keyframes event-in {
+  from {
     opacity: 0;
-    transform: translateX(0.5rem) translateY(-50%) scale(0.95);
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: event-in 0.3s ease-out;
+}
+
+/* Pulse animation for live indicators */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Selection */
+::selection {
+  background: rgba(6, 182, 212, 0.3);
+  color: white;
+}
+
+/* ═══════════════════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   Dark mode is the source of truth — these rules
+   remap the hardcoded white-alpha / black-alpha
+   classes so light mode renders properly.
+   ═══════════════════════════════════════════════════ */
+
+/* ── Backgrounds: black/XX → light surface ──────── */
+:root:not(.dark) .bg-black\/20 { background-color: hsl(220 20% 96%); }
+:root:not(.dark) .bg-black\/30 { background-color: hsl(220 18% 95%); }
+:root:not(.dark) .bg-black\/40 { background-color: hsl(0 0% 100% / 0.85); }
+
+/* ── Backgrounds: white/[0.0X] → white or light ── */
+:root:not(.dark) .bg-white\/\[0\.02\],
+:root:not(.dark) .bg-white\/\[0\.03\],
+:root:not(.dark) .bg-white\/\[0\.04\],
+:root:not(.dark) .bg-white\/\[0\.05\] { background-color: hsl(0 0% 100%); }
+:root:not(.dark) .bg-white\/\[0\.06\],
+:root:not(.dark) .bg-white\/\[0\.07\],
+:root:not(.dark) .bg-white\/\[0\.08\] { background-color: hsl(220 14% 96%); }
+:root:not(.dark) .bg-white\/20 { background-color: hsl(220 14% 90%); }
+
+/* ── Hover backgrounds ─────────────────────────── */
+:root:not(.dark) .hover\:bg-white\/\[0\.03\]:hover,
+:root:not(.dark) .hover\:bg-white\/\[0\.04\]:hover,
+:root:not(.dark) .hover\:bg-white\/\[0\.05\]:hover { background-color: hsl(220 14% 94%); }
+:root:not(.dark) .hover\:bg-white\/\[0\.06\]:hover,
+:root:not(.dark) .hover\:bg-white\/\[0\.1\]:hover,
+:root:not(.dark) .hover\:bg-white\/\[0\.12\]:hover { background-color: hsl(220 14% 91%); }
+
+/* ── Borders: white/[0.XX] → visible light borders */
+:root:not(.dark) .border-white\/\[0\.04\],
+:root:not(.dark) .border-white\/\[0\.06\],
+:root:not(.dark) .border-white\/\[0\.08\] { border-color: hsl(220 14% 88%); }
+:root:not(.dark) .border-white\/\[0\.1\],
+:root:not(.dark) .border-white\/\[0\.12\] { border-color: hsl(220 14% 84%); }
+:root:not(.dark) .border-white\/\[0\.15\],
+:root:not(.dark) .border-white\/\[0\.18\] { border-color: hsl(220 14% 80%); }
+:root:not(.dark) .border-white\/20 { border-color: hsl(220 14% 78%); }
+:root:not(.dark) .hover\:border-white\/\[0\.15\]:hover { border-color: hsl(220 14% 80%); }
+:root:not(.dark) .hover\:border-white\/\[0\.18\]:hover { border-color: hsl(220 14% 76%); }
+
+/* ── Dividers ──────────────────────────────────── */
+:root:not(.dark) .divide-white\/\[0\.03\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: hsl(220 14% 90%);
+}
+
+/* ── Colored text: 300-level → 700-level ────────── */
+:root:not(.dark) .text-amber-300 { color: rgb(180 83 9); }
+:root:not(.dark) .text-red-300 { color: rgb(185 28 28); }
+:root:not(.dark) .text-violet-300 { color: rgb(109 40 217); }
+:root:not(.dark) .text-emerald-300 { color: rgb(4 120 87); }
+:root:not(.dark) .text-cyan-300\/90 { color: rgb(14 116 144); }
+
+/* ── Colored text: 400-level → 600-level ────────── */
+:root:not(.dark) .text-blue-400 { color: rgb(37 99 235); }
+:root:not(.dark) .text-cyan-400 { color: rgb(8 145 178); }
+:root:not(.dark) .text-emerald-400 { color: rgb(5 150 105); }
+:root:not(.dark) .text-amber-400 { color: rgb(217 119 6); }
+:root:not(.dark) .text-rose-400 { color: rgb(190 18 60); }
+:root:not(.dark) .text-violet-400 { color: rgb(124 58 237); }
+:root:not(.dark) .text-orange-400 { color: rgb(234 88 12); }
+:root:not(.dark) .text-pink-400 { color: rgb(219 39 119); }
+:root:not(.dark) .text-red-400 { color: rgb(220 38 38); }
+:root:not(.dark) .text-slate-400 { color: rgb(71 85 105); }
+
+/* ── Foreground opacity: works via CSS vars ─────── */
+:root:not(.dark) .text-foreground\/95 { color: hsl(224 14% 16% / 0.95); }
+:root:not(.dark) .text-foreground\/90 { color: hsl(224 14% 16% / 0.9); }
+:root:not(.dark) .text-foreground\/80 { color: hsl(224 14% 16% / 0.8); }
+:root:not(.dark) .text-foreground\/75 { color: hsl(224 14% 16% / 0.75); }
+:root:not(.dark) .text-foreground\/70 { color: hsl(224 14% 16% / 0.7); }
+:root:not(.dark) .text-foreground\/60 { color: hsl(224 14% 16% / 0.6); }
+
+/* ── Inline code: white bg → subtle light bg ────── */
+:root:not(.dark) code.bg-white\/\[0\.06\] { background-color: hsl(220 14% 93%); }
+
+/* ── Shadows ───────────────────────────────────── */
+:root:not(.dark) .shadow-\[0_0_15px_rgba\(255\,255\,255\,0\.03\)\] {
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.05);
+}
+:root:not(.dark) .shadow-2xl {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Dot grid ──────────────────────────────────── */
+:root:not(.dark) .bg-grid {
+  background-image: radial-gradient(
+    circle,
+    rgba(0, 0, 0, 0.04) 1px,
+    transparent 1px
+  );
+}
+
+/* ── Scrollbar ─────────────────────────────────── */
+:root:not(.dark) ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); }
+:root:not(.dark) ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.18); }
+
+/* ── Selection ─────────────────────────────────── */
+:root:not(.dark) ::selection {
+  background: rgba(6, 182, 212, 0.2);
+  color: black;
+}

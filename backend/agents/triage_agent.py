@@ -1,5 +1,5 @@
 """
-Triage Agent — classifies GitHub issues using Claude API.
+Triage Agent — classifies GitHub issues using an LLM.
 
 Takes a GitHub issue (title + body) and returns structured JSON:
   - severity: critical | high | medium | low
@@ -10,7 +10,19 @@ Takes a GitHub issue (title + body) and returns structured JSON:
 """
 
 import json
-import anthropic
+
+from llm import call_llm, get_default_model
+from events import (
+    EventEmitter,
+    get_default_emitter,
+    AGENT_TRIAGE,
+    EVENT_STATUS,
+    EVENT_PROGRESS,
+    EVENT_RESULT,
+    EVENT_ERROR,
+    EVENT_LOG,
+    EVENT_SUMMARY,
+)
 
 
 TRIAGE_SYSTEM_PROMPT = """\
@@ -50,12 +62,144 @@ Return ONLY the JSON object. No explanation, no markdown fences, no extra text.
 """
 
 
+def _fix_json_escapes(text: str) -> str:
+    import re as _re
+    return _re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', text)
+
+
+def _strip_json_comments(text: str) -> str:
+    """Strip // and /* */ comments while preserving string contents."""
+    out = []
+    i = 0
+    n = len(text)
+    in_str = False
+    escape = False
+
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+
+        if in_str:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == "/" and nxt == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
+
+
+def _remove_trailing_commas(text: str) -> str:
+    import re as _re
+    return _re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _escape_control_chars_in_strings(text: str) -> str:
+    """Escape raw newlines/tabs inside quoted strings for JSON compatibility."""
+    out = []
+    in_str = False
+    escape = False
+
+    for ch in text:
+        if in_str:
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_str = False
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            if ch == "\t":
+                out.append("\\t")
+                continue
+            out.append(ch)
+            continue
+
+        out.append(ch)
+        if ch == '"':
+            in_str = True
+
+    return "".join(out)
+
+
+def _parse_json_safe(raw_text: str) -> dict:
+    """Parse JSON from LLM output with tolerant cleanup steps."""
+    # Direct parse first
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+
+    start = raw_text.find("{")
+    end = raw_text.rfind("}") + 1
+    if start < 0 or end <= start:
+        raise ValueError("No JSON object in LLM response")
+
+    snippet = raw_text[start:end]
+    candidates = [
+        snippet,
+        _remove_trailing_commas(_strip_json_comments(snippet)),
+        _fix_json_escapes(_remove_trailing_commas(_strip_json_comments(snippet))),
+        _escape_control_chars_in_strings(
+            _fix_json_escapes(_remove_trailing_commas(_strip_json_comments(snippet)))
+        ),
+    ]
+
+    last_err = None
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            last_err = e
+            continue
+
+    raise ValueError(f"Failed to parse JSON response: {last_err}")
+
+
 def triage_issue(
     issue_title: str,
     issue_body: str,
     repo_name: str = "",
     existing_issues: list[str] | None = None,
-    model: str = "claude-sonnet-4-20250514",
+    model: str | None = None,
+    emitter: EventEmitter | None = None,
 ) -> dict:
     """Run the triage agent on a GitHub issue.
 
@@ -65,13 +209,32 @@ def triage_issue(
         repo_name: Optional repo name for context.
         existing_issues: Optional list of existing issue titles for duplicate detection.
         model: Claude model to use.
+        emitter: Optional event emitter for status updates.
 
     Returns:
         Structured triage result as a dict.
     """
-    client = anthropic.Anthropic()
+    em = emitter or get_default_emitter()
+    A = AGENT_TRIAGE  # shorthand
+    model = model or get_default_model()
 
-    # Build the user message with all available context
+    # ── Starting ──────────────────────────────────────────────────
+    em.emit(A, EVENT_STATUS, "starting", "Triage Agent starting", {
+        "issue_title": issue_title,
+        "repo_name": repo_name,
+    })
+
+    em.emit(A, EVENT_STATUS, "starting",
+            "═" * 58)
+    em.emit(A, EVENT_STATUS, "starting",
+            "  TRIAGE AGENT — Analyzing issue")
+    em.emit(A, EVENT_STATUS, "starting",
+            "═" * 58)
+
+    # ── Build prompt ──────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "building_prompt",
+            f"Building prompt for: \"{issue_title}\"")
+
     user_message = f"Issue Title: {issue_title}\n\n"
     user_message += f"Issue Body:\n{issue_body or '(no description provided)'}\n"
 
@@ -80,30 +243,78 @@ def triage_issue(
 
     if existing_issues:
         user_message += "\nExisting open issues (for duplicate detection):\n"
-        for i, title in enumerate(existing_issues[:20], 1):  # cap at 20
+        for i, title in enumerate(existing_issues[:20], 1):
             user_message += f"  {i}. {title}\n"
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        system=TRIAGE_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    em.emit(A, EVENT_LOG, "building_prompt",
+            f"Prompt built ({len(user_message)} chars)")
 
-    # Extract the text response
-    raw_text = response.content[0].text.strip()
+    # ── Call LLM ──────────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "calling_llm",
+            f"Calling LLM ({model}) for triage analysis...")
 
-    # Parse JSON (strip markdown fences if model adds them despite instructions)
-    if raw_text.startswith("```"):
-        raw_text = raw_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        raw_text = call_llm(
+            system=TRIAGE_SYSTEM_PROMPT,
+            user_msg=user_message,
+            model=model,
+            max_tokens=1024,
+        )
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "calling_llm", f"LLM API error: {e}")
+        raise
 
-    result = json.loads(raw_text)
+    em.emit(A, EVENT_LOG, "calling_llm",
+            f"Received response ({len(raw_text)} chars)")
 
-    # Validate expected fields
+    # ── Parse JSON ───────────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "parsing_response",
+            "Parsing LLM response...")
+
+    try:
+        result = _parse_json_safe(raw_text)
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "parsing_response",
+                f"Failed to parse JSON response: {e}")
+        em.emit(A, EVENT_LOG, "parsing_response",
+                f"Raw response: {raw_text[:500]}")
+        raise
+
+    # ── Validate ─────────────────────────────────────────────────
     expected_keys = {"severity", "likely_module", "is_duplicate", "duplicate_of", "summary"}
     missing = expected_keys - set(result.keys())
     if missing:
+        em.emit(A, EVENT_ERROR, "validating",
+                f"Response missing fields: {missing}")
         raise ValueError(f"Triage response missing fields: {missing}")
 
-    return result
+    # ── Report results ───────────────────────────────────────────
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Severity: {result['severity'].upper()}")
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Likely module: {result['likely_module']}")
+    em.emit(A, EVENT_PROGRESS, "complete",
+            f"Duplicate: {'Yes → ' + result['duplicate_of'] if result['is_duplicate'] else 'No'}")
+    em.emit(A, EVENT_LOG, "complete",
+            f"Summary: {result['summary'][:150]}...")
 
+    em.emit(A, EVENT_RESULT, "complete",
+            "Triage complete", {"triage_result": result})
+
+    # ── Summary for frontend ─────────────────────────────────────
+    em.emit(A, EVENT_SUMMARY, "summary",
+            "Triage Summary", {
+                "severity": result["severity"].upper(),
+                "likely_module": result["likely_module"],
+                "is_duplicate": "Yes" if result["is_duplicate"] else "No",
+                "findings": [result["summary"]],
+            })
+
+    em.emit(A, EVENT_STATUS, "complete",
+            "═" * 58)
+    em.emit(A, EVENT_STATUS, "complete",
+            "  TRIAGE AGENT — Complete")
+    em.emit(A, EVENT_STATUS, "complete",
+            "═" * 58)
+
+    return result

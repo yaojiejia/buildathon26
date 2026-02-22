@@ -1,29 +1,75 @@
 import { NextResponse } from "next/server"
-import { verifySlackSignature, postReplyInThread } from "@/lib/slack"
+import {
+  verifySlackSignature,
+  postBlocksInThread,
+  postReplyInThread,
+  postStatusUpdateInThread,
+  buildHandoffArtifactBlocks,
+  type HandoffContext,
+} from "@/lib/slack"
+import { transitionTo, getIssueCreatedAt } from "@/lib/issue-state"
+import { prisma } from "@/lib/db"
+import { transitionCase } from "@/lib/case-state-machine"
+
+type SlackBlock = {
+  type: string
+  text?: { type: string; text?: string }
+  elements?: unknown[]
+}
 
 type SlackInteractionPayload = {
   type: string
-  user?: { id: string; username: string }
   channel?: { id: string }
-  message?: { ts: string }
+  message?: { ts: string; blocks?: SlackBlock[] }
   actions?: Array<{ action_id: string; value?: string }>
 }
 
 /**
+ * Parse issue context (title, summary, repoLink) from the original message blocks.
+ */
+function parseMessageContext(blocks: SlackBlock[] | undefined): HandoffContext | null {
+  if (!blocks || !Array.isArray(blocks)) return null
+  let title = "Issue"
+  let summary = ""
+  let repoLink = ""
+  for (const block of blocks) {
+    if (block.type === "header" && block.text?.text) {
+      title = block.text.text
+    }
+    if (block.type === "section" && block.text?.text) {
+      const t = block.text.text
+      const linkMatch = t.match(/<([^|>]+)\|[^>]*>/)
+      if (linkMatch) repoLink = linkMatch[1]
+      else if (!summary) summary = t
+    }
+  }
+  if (!repoLink) return null
+  return { title, summary, repoLink }
+}
+
+/**
  * POST /api/slack/interactions
- * Handles Slack interactivity (button clicks). Verify signature, then run action and reply in thread.
+ * Handles interactive button payloads: state transition + Slack thread status update.
+ * - Investigate → INVESTIGATING
+ * - Assign Human → NEEDS_HUMAN
+ * - Open in Cursor → generate handoff artifact
  */
 export async function POST(request: Request) {
-  const rawBody = await request.text()
+  const rawBodyBytes = await request.arrayBuffer()
+  const rawBody = Buffer.from(rawBodyBytes)
   const signature = request.headers.get("x-slack-signature")
+  const requestTimestamp = request.headers.get("x-slack-request-timestamp")
 
-  if (!verifySlackSignature(rawBody, signature)) {
+  const skipVerify = process.env.SKIP_SLACK_SIGNATURE_VERIFY === "1"
+  const valid = skipVerify || verifySlackSignature(rawBody, signature, requestTimestamp)
+  if (!valid) {
+    console.warn("[interactions] 401 Invalid signature", "bodyLen=" + rawBody.length, "sig=" + (signature ? "present" : "MISSING"))
     return new NextResponse("Invalid signature", { status: 401 })
   }
 
   let payload: SlackInteractionPayload
   try {
-    const params = new URLSearchParams(rawBody)
+    const params = new URLSearchParams(rawBody.toString("utf8"))
     const payloadStr = params.get("payload")
     if (!payloadStr) {
       return NextResponse.json({ error: "Missing payload" }, { status: 400 })
@@ -36,34 +82,130 @@ export async function POST(request: Request) {
   const channelId = payload.channel?.id
   const messageTs = payload.message?.ts
   const action = payload.actions?.[0]
+  const blocks = payload.message?.blocks
 
   if (!channelId || !messageTs || !action) {
     return NextResponse.json({ error: "Missing channel, message or action" }, { status: 400 })
   }
 
   const actionId = action.action_id
-  let replyText: string
 
-  switch (actionId) {
-    case "investigate":
-      replyText = "🔍 Investigation started. The team will look into this."
-      break
-    case "assign_human":
-      replyText = "👤 A human has been assigned to this case."
-      break
-    case "open_in_cursor":
-      replyText = "📂 Open the repository in Cursor from the link in the message above."
-      break
-    default:
-      replyText = "Action received."
+  /** Map Slack button action to DB Case state (for state machine). */
+  const actionToDbState: Record<string, string> = {
+    investigate: "INVESTIGATING",
+    assign_human: "NEEDS_HUMAN",
+    report_ready: "REPORT_READY",
+    pr_opened: "PR_OPENED",
+    review_completed: "UNDER_REVIEW",
   }
 
-  // Respond to Slack within 3s, then post reply in thread
-  void postReplyInThread(channelId, messageTs, replyText).then((replyResult) => {
-    if (!replyResult.ok) {
-      console.error("Slack thread reply failed:", replyResult.error)
+  const postTimelineUpdate = async (
+    state: "INVESTIGATING" | "REPORT_READY" | "PR_OPENED" | "REVIEW_COMPLETED" | "NEEDS_HUMAN",
+    badge: string,
+    confidence: number | null = null
+  ) => {
+    transitionTo(channelId, messageTs, state)
+    const createdAt = getIssueCreatedAt(channelId, messageTs)
+    const elapsed =
+      createdAt != null ? Date.now() - createdAt : null
+    const r = await postStatusUpdateInThread(channelId, messageTs, {
+      statusBadge: badge,
+      confidenceScore: confidence,
+      timeElapsedMs: elapsed,
+    })
+    if (!r.ok) console.error("Slack status update failed:", r.error)
+
+    const dbState = actionToDbState[actionId]
+    if (dbState) {
+      const caseRecord = await prisma.case.findFirst({
+        where: { slackChannelId: channelId, slackThreadTs: messageTs },
+      })
+      if (caseRecord) {
+        const result = await transitionCase(caseRecord.id, dbState, {
+          source: "slack",
+          action: actionId,
+        })
+        if (!result.ok) {
+          console.warn("[interactions] DB state transition failed:", result.error)
+        }
+      }
     }
-  })
+  }
+
+  const run = async () => {
+    switch (actionId) {
+      case "investigate":
+        await postTimelineUpdate("INVESTIGATING", "🔍 Investigation started")
+        break
+      case "assign_human":
+        await postTimelineUpdate("NEEDS_HUMAN", "👤 Needs human")
+        break
+      case "report_ready":
+        await postTimelineUpdate("REPORT_READY", "📋 Report ready", 85)
+        break
+      case "pr_opened":
+        await postTimelineUpdate("PR_OPENED", "🔀 PR opened", 90)
+        break
+      case "review_completed":
+        await postTimelineUpdate("REVIEW_COMPLETED", "✅ Review completed", 95)
+        break
+      case "open_in_cursor": {
+        const ctx = parseMessageContext(blocks) ?? {
+          title: "Issue",
+          summary: "",
+          repoLink: "https://github.com/owner/repo",
+        }
+        const handoffBlocks = buildHandoffArtifactBlocks(ctx)
+        const r3 = await postBlocksInThread(
+          channelId,
+          messageTs,
+          handoffBlocks,
+          "Handoff artifact – Open in Cursor"
+        )
+        if (!r3.ok) console.error("Slack handoff post failed:", r3.error)
+        break
+      }
+      case "create_github_issue": {
+        const caseId = action.value
+        if (!caseId) break
+        const c = await prisma.case.findUnique({
+          where: { id: caseId },
+          select: { title: true, body: true },
+        })
+        const defaultRepo = process.env.GITHUB_DEFAULT_REPO?.trim()
+        if (!defaultRepo || !c) {
+          await postReplyInThread(
+            channelId,
+            messageTs,
+            c
+              ? "Create GitHub issue: set `GITHUB_DEFAULT_REPO=owner/repo` in env and create an issue manually, then link it to this case."
+              : "Case not found."
+          )
+          break
+        }
+        const title = encodeURIComponent(c.title)
+        const body = encodeURIComponent((c.body ?? "").slice(0, 2000))
+        const newIssueUrl = `https://github.com/${defaultRepo}/issues/new?title=${title}&body=${body}`
+        await postReplyInThread(
+          channelId,
+          messageTs,
+          `Create a GitHub issue for this case: <${newIssueUrl}|Open new issue>. After you create it, mention the issue here (e.g. #123) to link it.`
+        )
+        break
+      }
+      default: {
+        const createdAt = getIssueCreatedAt(channelId, messageTs)
+        const elapsed = createdAt != null ? Date.now() - createdAt : null
+        await postStatusUpdateInThread(channelId, messageTs, {
+          statusBadge: "Action received.",
+          confidenceScore: null,
+          timeElapsedMs: elapsed,
+        })
+      }
+    }
+  }
+
+  void run()
 
   return new NextResponse()
 }
