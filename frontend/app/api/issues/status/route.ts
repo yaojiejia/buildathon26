@@ -3,7 +3,7 @@ import { postStatusUpdateInThread } from "@/lib/slack"
 import { transitionTo, getIssueCreatedAt } from "@/lib/issue-state"
 
 const BADGE_BY_STATE: Record<string, string> = {
-  INVESTIGATING: "🔍 Investigation started",
+  INVESTIGATING: "🔍 Investigation ended",
   REPORT_READY: "📋 Report ready",
   PR_OPENED: "🔀 PR opened",
   REVIEW_COMPLETED: "✅ Review completed",

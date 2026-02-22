@@ -156,22 +156,14 @@ export type StatusUpdatePayload = {
 }
 
 /**
- * Build Block Kit blocks for a timeline status update (badge + confidence + elapsed).
+ * Build Block Kit blocks for a timeline status update (badge only).
  */
 export function buildStatusUpdateBlocks(payload: StatusUpdatePayload): Record<string, unknown>[] {
-  const { statusBadge, confidenceScore, timeElapsedMs } = payload
-  const confidence =
-    confidenceScore != null ? `${confidenceScore}%` : "—"
-  const elapsed =
-    timeElapsedMs != null ? formatTimeElapsed(timeElapsedMs) : "—"
+  const { statusBadge } = payload
   return [
     {
       type: "context",
-      elements: [
-        { type: "mrkdwn", text: `*${statusBadge}*` },
-        { type: "mrkdwn", text: `Confidence: ${confidence}` },
-        { type: "mrkdwn", text: `Elapsed: ${elapsed}` },
-      ],
+      elements: [{ type: "mrkdwn", text: `*${statusBadge}*` }],
     },
   ]
 }

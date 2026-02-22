@@ -9,6 +9,7 @@ import {
 import { prisma } from "@/lib/db"
 import { recordInitialState } from "@/lib/case-state-machine"
 import { recordIssueCreated } from "@/lib/issue-state"
+import { summarizeTitle } from "@/lib/utils"
 
 type SlackEvent = {
   type: string
@@ -38,7 +39,6 @@ function markEventProcessed(eventId: string): void {
   processedEventIds.add(eventId)
 }
 
-const MAX_TITLE_LEN = 200
 const MAX_SUMMARY_LEN = 500
 
 /** Strip bot mention like <@U123ABC> from message text. */
@@ -116,9 +116,7 @@ async function handleAppMention(event: SlackEvent, baseUrl: string): Promise<voi
   const messageText = stripBotMention(text)
   const issueRef = parseIssueRef(messageText, defaultRepo)
 
-  const title =
-    messageText.slice(0, MAX_TITLE_LEN) ||
-    "Slack case"
+  const title = summarizeTitle(messageText) || "Slack case"
   const summary =
     messageText.length > MAX_SUMMARY_LEN
       ? messageText.slice(0, MAX_SUMMARY_LEN) + "…"
