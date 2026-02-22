@@ -64,7 +64,14 @@ Users can start a BugPilot case by **@mentioning the app** in a channel or threa
 3. Reinstall the app to the workspace if prompted.
 4. Optional: set `GITHUB_DEFAULT_REPO=owner/repo` in `.env.local` so `#123` in the message resolves to that repo, and so the "Create GitHub issue" button can link to a new-issue URL.
 
-When someone mentions the bot, the app creates a case (with `sourceType: "slack"`), stores the message and Slack user/channel/thread, and replies in the same thread with action buttons (Investigate, Assign Human, Create GitHub issue if no issue linked, etc.). The case appears in the dashboard and the thread is the timeline.
+When someone mentions the bot, the app creates a case (with `sourceType: "slack"`), stores the message and Slack user/channel/thread, and replies in the same thread with action buttons (Investigate, etc.). The case appears in the dashboard and the thread is the timeline.
+
+**Bot not responding to @mentions?**
+
+1. **Request URL must be publicly reachable.** For local dev, use [ngrok](https://ngrok.com) (e.g. `ngrok http 3000`) and set **Event Subscriptions → Request URL** to `https://<your-ngrok-host>/api/slack/events`. Slack will not send events to `localhost`.
+2. **Env in `.env.local`:** `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (both required). Wrong or missing signing secret causes 401 and no reply.
+3. **Check the terminal** where `npm run dev` is running. You should see `[Slack events] POST received` when you @ the bot. If you see `401 Invalid signature`, fix `SLACK_SIGNING_SECRET`. If you see `handleAppMention failed`, read the error (e.g. missing token, DB error).
+4. **Reinstall the app** after changing Event Subscriptions or Request URL so Slack picks up the new config.
 
 ### 3. Database
 

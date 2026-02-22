@@ -28,9 +28,6 @@ function getSlackConfig(): { token: string; channel?: string } {
  */
 export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>[] {
   const { title, summary, repoLink, investigateUrl } = payload
-  const cursorOpenUrl =
-    process.env.CURSOR_OPEN_URL ||
-    `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`
 
   const investigateButton: Record<string, unknown> = investigateUrl
     ? {
@@ -64,41 +61,7 @@ export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>
     {
       type: "actions",
       block_id: "issue_actions",
-      elements: [
-        investigateButton,
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Assign Human", emoji: true },
-          action_id: "assign_human",
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Open in Cursor", emoji: true },
-          action_id: "open_in_cursor",
-          url: cursorOpenUrl,
-        },
-      ],
-    },
-    {
-      type: "actions",
-      block_id: "issue_actions_2",
-      elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Report ready", emoji: true },
-          action_id: "report_ready",
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: "PR opened", emoji: true },
-          action_id: "pr_opened",
-        },
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Review completed", emoji: true },
-          action_id: "review_completed",
-        },
-      ],
+      elements: [investigateButton],
     },
   ]
 }
@@ -273,16 +236,25 @@ export type SlackCasePayload = {
   investigateUrl?: string
 }
 
+/** Slack header block allows max 150 chars for plain_text. */
+const SLACK_HEADER_MAX_LEN = 150
+
 /**
  * Build Block Kit blocks for a Slack-initiated case: header, summary, repo link (if any), actions.
  * If no GitHub issue linked, include "Create GitHub issue" button.
  */
 export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, unknown>[] {
   const { caseId, title, summary, repoLink, hasGithubIssue, investigateUrl } = payload
+  const headerPrefix = "📋 Case created: "
+  const fullHeader = headerPrefix + title
+  const headerText =
+    fullHeader.length > SLACK_HEADER_MAX_LEN
+      ? headerPrefix + title.slice(0, SLACK_HEADER_MAX_LEN - headerPrefix.length - 1) + "…"
+      : fullHeader
   const blocks: Record<string, unknown>[] = [
     {
       type: "header",
-      text: { type: "plain_text", text: `📋 Case created: ${title}`, emoji: true },
+      text: { type: "plain_text", text: headerText, emoji: true },
     },
     {
       type: "section",
@@ -295,9 +267,6 @@ export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, 
       text: { type: "mrkdwn", text: `<${repoLink}|View repository>` },
     })
   }
-  const cursorOpenUrl = repoLink
-    ? (process.env.CURSOR_OPEN_URL || `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`)
-    : null
   const investigateButton: Record<string, unknown> = investigateUrl
     ? {
         type: "button",
@@ -306,36 +275,7 @@ export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, 
         url: investigateUrl,
       }
     : { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" }
-  const row1: Record<string, unknown>[] = [
-    investigateButton,
-    { type: "button", text: { type: "plain_text", text: "Assign Human", emoji: true }, action_id: "assign_human" },
-  ]
-  if (cursorOpenUrl) {
-    row1.push({
-      type: "button",
-      text: { type: "plain_text", text: "Open in Cursor", emoji: true },
-      action_id: "open_in_cursor",
-      url: cursorOpenUrl,
-    })
-  }
-  if (!hasGithubIssue) {
-    row1.push({
-      type: "button",
-      text: { type: "plain_text", text: "Create GitHub issue", emoji: true },
-      action_id: "create_github_issue",
-      value: caseId,
-    })
-  }
-  blocks.push({ type: "actions", block_id: "issue_actions", elements: row1 })
-  blocks.push({
-    type: "actions",
-    block_id: "issue_actions_2",
-    elements: [
-      { type: "button", text: { type: "plain_text", text: "Report ready", emoji: true }, action_id: "report_ready" },
-      { type: "button", text: { type: "plain_text", text: "PR opened", emoji: true }, action_id: "pr_opened" },
-      { type: "button", text: { type: "plain_text", text: "Review completed", emoji: true }, action_id: "review_completed" },
-    ],
-  })
+  blocks.push({ type: "actions", block_id: "issue_actions", elements: [investigateButton] })
   return blocks
 }
 
