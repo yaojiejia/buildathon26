@@ -115,7 +115,7 @@ def codebase_search_node(state: PipelineState) -> dict:
         repo_name=state.get("repo_name", ""),
         triage_result=state.get("triage_result"),
         model=state.get("model") or get_default_model(),
-        num_questions=state.get("num_questions", 5),
+        num_questions=state.get("num_questions", 1),
         clone_dir=state.get("clone_dir"),
         force_reindex=state.get("force_reindex", False),
         emitter=em,

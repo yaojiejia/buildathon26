@@ -68,7 +68,7 @@ A = AGENT_CODEBASE_SEARCH  # shorthand for event emission
 
 NIA_BASE_URL = "https://apigcp.trynia.ai/v2"
 MAX_SUSPECT_FILES = 10
-MAX_QUESTIONS = 5
+MAX_QUESTIONS = 1
 # Extensions for local fallback
 CODE_EXTENSIONS = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
