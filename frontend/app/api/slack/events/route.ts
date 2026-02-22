@@ -2,12 +2,14 @@ import { NextResponse } from "next/server"
 import { verifySlackSignature } from "@/lib/slack"
 import {
   postBlocksInThread,
+  postReplyInThread,
   buildSlackCaseBlocks,
   type SlackCasePayload,
 } from "@/lib/slack"
 import { prisma } from "@/lib/db"
 import { recordInitialState } from "@/lib/case-state-machine"
 import { recordIssueCreated } from "@/lib/issue-state"
+import { summarizeTitle } from "@/lib/utils"
 
 type SlackEvent = {
   type: string
@@ -26,7 +28,17 @@ type SlackEventsPayload = {
   event_id?: string
 }
 
-const MAX_TITLE_LEN = 200
+/** In-memory set of recently processed event_ids to avoid duplicate processing (Slack retries). */
+const processedEventIds = new Set<string>()
+const MAX_PROCESSED_IDS = 10000
+function markEventProcessed(eventId: string): void {
+  if (processedEventIds.size >= MAX_PROCESSED_IDS) {
+    const first = processedEventIds.values().next().value
+    if (first != null) processedEventIds.delete(first)
+  }
+  processedEventIds.add(eventId)
+}
+
 const MAX_SUMMARY_LEN = 500
 
 /** Strip bot mention like <@U123ABC> from message text. */
@@ -89,7 +101,9 @@ async function handleAppMention(event: SlackEvent, baseUrl: string): Promise<voi
   const user = event.user
   const text = event.text ?? ""
   const ts = event.ts ?? ""
-  const threadTs = event.thread_ts ?? ts
+  // Reply in the thread of the message that @mentioned us (use ts, not thread_ts),
+  // so each @mention gets its own "Case created" reply under that message.
+  const threadTs = ts
 
   console.log("[Slack events] handleAppMention", { channel, user, ts, text: text.slice(0, 80) })
 
@@ -102,9 +116,7 @@ async function handleAppMention(event: SlackEvent, baseUrl: string): Promise<voi
   const messageText = stripBotMention(text)
   const issueRef = parseIssueRef(messageText, defaultRepo)
 
-  const title =
-    messageText.slice(0, MAX_TITLE_LEN) ||
-    "Slack case"
+  const title = summarizeTitle(messageText) || "Slack case"
   const summary =
     messageText.length > MAX_SUMMARY_LEN
       ? messageText.slice(0, MAX_SUMMARY_LEN) + "…"
@@ -192,12 +204,23 @@ async function handleAppMention(event: SlackEvent, baseUrl: string): Promise<voi
     investigateUrl: `${baseUrl}/case/${caseRecord.id}`,
   }
   const blocks = buildSlackCaseBlocks(payload)
-  await postBlocksInThread(
+  const postResult = await postBlocksInThread(
     channel,
     threadTs,
     blocks,
     `Case created: ${title}`
   )
+  if (!postResult.ok) {
+    console.error("[Slack events] postBlocksInThread failed", postResult.error, { channel, threadTs, caseId: caseRecord.id })
+    const fallback = await postReplyInThread(
+      channel,
+      threadTs,
+      `Case created: ${title}. View it at ${baseUrl}/case/${caseRecord.id} (full message failed to post: ${postResult.error ?? "unknown"})`
+    )
+    if (!fallback.ok) {
+      console.error("[Slack events] fallback post also failed", fallback.error)
+    }
+  }
 
   console.log("[Slack events] case created from app_mention", {
     caseId: caseRecord.id,
@@ -218,6 +241,8 @@ export async function POST(request: Request) {
   const signature = request.headers.get("x-slack-signature")
   const requestTimestamp = request.headers.get("x-slack-request-timestamp")
 
+  console.log("[Slack events] POST received", "bodyLen=" + rawBody.length, "hasSignature=" + !!signature)
+
   const skipVerify = process.env.SKIP_SLACK_SIGNATURE_VERIFY === "1"
   const valid =
     skipVerify ||
@@ -227,7 +252,7 @@ export async function POST(request: Request) {
       requestTimestamp
     )
   if (!valid) {
-    console.warn("[Slack events] 401 Invalid signature")
+    console.warn("[Slack events] 401 Invalid signature — check SLACK_SIGNING_SECRET and that Request URL in Slack app matches this server")
     return new NextResponse("Invalid signature", { status: 401 })
   }
 
@@ -248,11 +273,17 @@ export async function POST(request: Request) {
 
   if (payload.type === "event_callback") {
     const event = payload.event
+    const eventId = payload.event_id ?? ""
     if (!event) {
       return NextResponse.json({ error: "Missing event" }, { status: 400 })
     }
-    console.log("[Slack events] event_callback", event.type, event.channel, event.ts)
+    console.log("[Slack events] event_callback", event.type, event.channel, event.ts, "event_id=" + eventId)
     if (event.type === "app_mention") {
+      if (eventId && processedEventIds.has(eventId)) {
+        console.log("[Slack events] skipping duplicate event_id", eventId)
+        return new NextResponse()
+      }
+      if (eventId) markEventProcessed(eventId)
       const baseUrl = getBaseUrl(request)
       void handleAppMention(event, baseUrl).catch((err) => {
         console.error("[Slack events] handleAppMention failed", err)

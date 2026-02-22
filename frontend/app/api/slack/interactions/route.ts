@@ -135,7 +135,7 @@ export async function POST(request: Request) {
   const run = async () => {
     switch (actionId) {
       case "investigate":
-        await postTimelineUpdate("INVESTIGATING", "🔍 Investigation started")
+        await postTimelineUpdate("INVESTIGATING", "🔍 Investigation ended")
         break
       case "assign_human":
         await postTimelineUpdate("NEEDS_HUMAN", "👤 Needs human")

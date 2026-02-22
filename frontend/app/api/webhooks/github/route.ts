@@ -4,6 +4,7 @@ import { postIssueToSlack } from "@/lib/slack"
 import { recordIssueCreated } from "@/lib/issue-state"
 import { prisma } from "@/lib/db"
 import { recordInitialState } from "@/lib/case-state-machine"
+import { summarizeTitle } from "@/lib/utils"
 
 const MAX_SUMMARY_LEN = 500
 
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
         })
         return NextResponse.json({ error: "Missing issue or repository" }, { status: 400 })
       }
-      const title = issue.title
+      const title = summarizeTitle(issue.title ?? "")
       const body = issue.body?.trim() ?? null
       const summary =
         body != null && body.length > MAX_SUMMARY_LEN

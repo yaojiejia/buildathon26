@@ -35,10 +35,6 @@ const title = process.argv[2] || "Issue created";
 const summary = process.argv[3] || "No summary provided.";
 const repoLink = process.argv[4] || "https://github.com/username/repo";
 
-const cursorOpenUrl =
-  process.env.CURSOR_OPEN_URL ||
-  `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`;
-
 const blocks = [
   { type: "header", text: { type: "plain_text", text: title, emoji: true } },
   { type: "section", text: { type: "mrkdwn", text: summary } },
@@ -51,17 +47,6 @@ const blocks = [
     block_id: "issue_actions",
     elements: [
       { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" },
-      { type: "button", text: { type: "plain_text", text: "Assign Human", emoji: true }, action_id: "assign_human" },
-      { type: "button", text: { type: "plain_text", text: "Open in Cursor", emoji: true }, action_id: "open_in_cursor", url: cursorOpenUrl },
-    ],
-  },
-  {
-    type: "actions",
-    block_id: "issue_actions_2",
-    elements: [
-      { type: "button", text: { type: "plain_text", text: "Report ready", emoji: true }, action_id: "report_ready" },
-      { type: "button", text: { type: "plain_text", text: "PR opened", emoji: true }, action_id: "pr_opened" },
-      { type: "button", text: { type: "plain_text", text: "Review completed", emoji: true }, action_id: "review_completed" },
     ],
   },
 ];
