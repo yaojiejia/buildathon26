@@ -284,6 +284,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
                 issue_body: params!.issueBody,
                 repo_url: params!.repoUrl,
                 repo_name: params!.repoName,
+                enable_patch_agent: true,
               }),
               signal: controller.signal,
             })
