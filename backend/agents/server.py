@@ -40,7 +40,7 @@ class InvestigateRequest(BaseModel):
     issue_body: str = ""
     repo_url: str = ""
     repo_name: str = ""
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-opus-4-5"
     enable_patch_agent: bool = False
 
 
