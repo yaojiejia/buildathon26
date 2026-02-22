@@ -62,6 +62,137 @@ Return ONLY the JSON object. No explanation, no markdown fences, no extra text.
 """
 
 
+def _fix_json_escapes(text: str) -> str:
+    import re as _re
+    return _re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', text)
+
+
+def _strip_json_comments(text: str) -> str:
+    """Strip // and /* */ comments while preserving string contents."""
+    out = []
+    i = 0
+    n = len(text)
+    in_str = False
+    escape = False
+
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+
+        if in_str:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+
+        if ch == '"':
+            in_str = True
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == "/" and nxt == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
+
+
+def _remove_trailing_commas(text: str) -> str:
+    import re as _re
+    return _re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _escape_control_chars_in_strings(text: str) -> str:
+    """Escape raw newlines/tabs inside quoted strings for JSON compatibility."""
+    out = []
+    in_str = False
+    escape = False
+
+    for ch in text:
+        if in_str:
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_str = False
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            if ch == "\t":
+                out.append("\\t")
+                continue
+            out.append(ch)
+            continue
+
+        out.append(ch)
+        if ch == '"':
+            in_str = True
+
+    return "".join(out)
+
+
+def _parse_json_safe(raw_text: str) -> dict:
+    """Parse JSON from LLM output with tolerant cleanup steps."""
+    # Direct parse first
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+
+    start = raw_text.find("{")
+    end = raw_text.rfind("}") + 1
+    if start < 0 or end <= start:
+        raise ValueError("No JSON object in LLM response")
+
+    snippet = raw_text[start:end]
+    candidates = [
+        snippet,
+        _remove_trailing_commas(_strip_json_comments(snippet)),
+        _fix_json_escapes(_remove_trailing_commas(_strip_json_comments(snippet))),
+        _escape_control_chars_in_strings(
+            _fix_json_escapes(_remove_trailing_commas(_strip_json_comments(snippet)))
+        ),
+    ]
+
+    last_err = None
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            last_err = e
+            continue
+
+    raise ValueError(f"Failed to parse JSON response: {last_err}")
+
+
 def triage_issue(
     issue_title: str,
     issue_body: str,
@@ -141,30 +272,13 @@ def triage_issue(
             "Parsing LLM response...")
 
     try:
-        result = json.loads(raw_text)
-    except json.JSONDecodeError:
-        # Fallback: extract JSON object and fix invalid escapes
-        import re as _re
-        start = raw_text.find("{")
-        end = raw_text.rfind("}") + 1
-        if start >= 0 and end > start:
-            snippet = raw_text[start:end]
-            # Fix invalid JSON escapes (e.g. \s \d from regex patterns)
-            fixed = _re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', snippet)
-            try:
-                result = json.loads(fixed)
-            except json.JSONDecodeError as e2:
-                em.emit(A, EVENT_ERROR, "parsing_response",
-                        f"Failed to parse JSON even after fix: {e2}")
-                em.emit(A, EVENT_LOG, "parsing_response",
-                        f"Raw response: {raw_text[:500]}")
-                raise
-        else:
-            em.emit(A, EVENT_ERROR, "parsing_response",
-                    f"No JSON object found in response")
-            em.emit(A, EVENT_LOG, "parsing_response",
-                    f"Raw response: {raw_text[:500]}")
-            raise ValueError("No JSON object in LLM response")
+        result = _parse_json_safe(raw_text)
+    except Exception as e:
+        em.emit(A, EVENT_ERROR, "parsing_response",
+                f"Failed to parse JSON response: {e}")
+        em.emit(A, EVENT_LOG, "parsing_response",
+                f"Raw response: {raw_text[:500]}")
+        raise
 
     # ── Validate ─────────────────────────────────────────────────
     expected_keys = {"severity", "likely_module", "is_duplicate", "duplicate_of", "summary"}

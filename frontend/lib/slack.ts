@@ -11,13 +11,14 @@ export type IssuePayload = {
   summary: string
   repoLink: string
   repoFullName?: string
+  investigateUrl?: string
 }
 
-function getSlackConfig() {
+function getSlackConfig(): { token: string; channel?: string } {
   const token = process.env.SLACK_BOT_TOKEN
-  const channel = process.env.SLACK_CHANNEL_ID
-  if (!token || !channel) {
-    throw new Error("SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set")
+  const channel = process.env.SLACK_CHANNEL_ID ?? undefined
+  if (!token) {
+    throw new Error("SLACK_BOT_TOKEN must be set")
   }
   return { token, channel }
 }
@@ -26,10 +27,23 @@ function getSlackConfig() {
  * Build Block Kit blocks for an issue: header, summary, repo link, action buttons.
  */
 export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>[] {
-  const { title, summary, repoLink } = payload
+  const { title, summary, repoLink, investigateUrl } = payload
   const cursorOpenUrl =
     process.env.CURSOR_OPEN_URL ||
     `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`
+
+  const investigateButton: Record<string, unknown> = investigateUrl
+    ? {
+        type: "button",
+        text: { type: "plain_text", text: "Investigate", emoji: true },
+        action_id: "investigate",
+        url: investigateUrl,
+      }
+    : {
+        type: "button",
+        text: { type: "plain_text", text: "Investigate", emoji: true },
+        action_id: "investigate",
+      }
 
   return [
     {
@@ -51,11 +65,7 @@ export function buildIssueBlocks(payload: IssuePayload): Record<string, unknown>
       type: "actions",
       block_id: "issue_actions",
       elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Investigate", emoji: true },
-          action_id: "investigate",
-        },
+        investigateButton,
         {
           type: "button",
           text: { type: "plain_text", text: "Assign Human", emoji: true },
@@ -101,6 +111,9 @@ export async function postIssueToSlack(
   payload: IssuePayload
 ): Promise<{ ok: boolean; channel?: string; ts?: string; error?: string }> {
   const { token, channel } = getSlackConfig()
+  if (!channel) {
+    return { ok: false, error: "SLACK_CHANNEL_ID must be set for postIssueToSlack" }
+  }
   const blocks = buildIssueBlocks(payload)
   const res = await fetch(`${SLACK_API}/chat.postMessage`, {
     method: "POST",
@@ -248,6 +261,73 @@ export type HandoffContext = {
   title: string
   summary: string
   repoLink: string
+}
+
+/** Payload for Slack-initiated case (TICKET-1.3): reply in thread with case card + actions. */
+export type SlackCasePayload = {
+  caseId: string
+  title: string
+  summary: string
+  repoLink?: string | null
+  hasGithubIssue: boolean
+}
+
+/**
+ * Build Block Kit blocks for a Slack-initiated case: header, summary, repo link (if any), actions.
+ * If no GitHub issue linked, include "Create GitHub issue" button.
+ */
+export function buildSlackCaseBlocks(payload: SlackCasePayload): Record<string, unknown>[] {
+  const { caseId, title, summary, repoLink, hasGithubIssue } = payload
+  const blocks: Record<string, unknown>[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `📋 Case created: ${title}`, emoji: true },
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: summary || "_No description._" },
+    },
+  ]
+  if (repoLink) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `<${repoLink}|View repository>` },
+    })
+  }
+  const cursorOpenUrl = repoLink
+    ? (process.env.CURSOR_OPEN_URL || `https://cursor.com/open?url=${encodeURIComponent(repoLink)}`)
+    : null
+  const row1: Record<string, unknown>[] = [
+    { type: "button", text: { type: "plain_text", text: "Investigate", emoji: true }, action_id: "investigate" },
+    { type: "button", text: { type: "plain_text", text: "Assign Human", emoji: true }, action_id: "assign_human" },
+  ]
+  if (cursorOpenUrl) {
+    row1.push({
+      type: "button",
+      text: { type: "plain_text", text: "Open in Cursor", emoji: true },
+      action_id: "open_in_cursor",
+      url: cursorOpenUrl,
+    })
+  }
+  if (!hasGithubIssue) {
+    row1.push({
+      type: "button",
+      text: { type: "plain_text", text: "Create GitHub issue", emoji: true },
+      action_id: "create_github_issue",
+      value: caseId,
+    })
+  }
+  blocks.push({ type: "actions", block_id: "issue_actions", elements: row1 })
+  blocks.push({
+    type: "actions",
+    block_id: "issue_actions_2",
+    elements: [
+      { type: "button", text: { type: "plain_text", text: "Report ready", emoji: true }, action_id: "report_ready" },
+      { type: "button", text: { type: "plain_text", text: "PR opened", emoji: true }, action_id: "pr_opened" },
+      { type: "button", text: { type: "plain_text", text: "Review completed", emoji: true }, action_id: "review_completed" },
+    ],
+  })
+  return blocks
 }
 
 /**

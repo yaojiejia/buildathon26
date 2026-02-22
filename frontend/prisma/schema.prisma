@@ -8,16 +8,33 @@ datasource db {
 }
 
 model Case {
-  id              String   @id @default(cuid())
-  githubIssueId   Int
-  repo            String
-  title           String
-  body            String?
-  state           String   @default("OPEN")
-  slackChannelId  String?
-  slackThreadTs   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String   @id @default(cuid())
+  githubIssueId     Int?     // null for Slack-only cases until issue is created/linked
+  repo              String?  // null for Slack-only cases
+  title             String
+  body              String?
+  state             String   @default("NEW")
+  slackChannelId    String?
+  slackThreadTs     String?
+  sourceType        String   @default("github") // "github" | "slack"
+  slackUserId       String?
+  slackMessageText  String?  // original message when sourceType = slack
+  githubIssueUrl    String?  // set when issue is created/linked from Slack
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  transitions       CaseStateTransition[]
 
   @@unique([repo, githubIssueId])
+}
+
+model CaseStateTransition {
+  id        String   @id @default(cuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  fromState String
+  toState   String
+  createdAt DateTime @default(now())
+  metadata  String?  // optional JSON: source, userId, etc.
+
+  @@index([caseId])
 }

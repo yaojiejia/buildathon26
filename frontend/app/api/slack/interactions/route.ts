@@ -2,11 +2,14 @@ import { NextResponse } from "next/server"
 import {
   verifySlackSignature,
   postBlocksInThread,
+  postReplyInThread,
   postStatusUpdateInThread,
   buildHandoffArtifactBlocks,
   type HandoffContext,
 } from "@/lib/slack"
 import { transitionTo, getIssueCreatedAt } from "@/lib/issue-state"
+import { prisma } from "@/lib/db"
+import { transitionCase } from "@/lib/case-state-machine"
 
 type SlackBlock = {
   type: string
@@ -87,6 +90,15 @@ export async function POST(request: Request) {
 
   const actionId = action.action_id
 
+  /** Map Slack button action to DB Case state (for state machine). */
+  const actionToDbState: Record<string, string> = {
+    investigate: "INVESTIGATING",
+    assign_human: "NEEDS_HUMAN",
+    report_ready: "REPORT_READY",
+    pr_opened: "PR_OPENED",
+    review_completed: "UNDER_REVIEW",
+  }
+
   const postTimelineUpdate = async (
     state: "INVESTIGATING" | "REPORT_READY" | "PR_OPENED" | "REVIEW_COMPLETED" | "NEEDS_HUMAN",
     badge: string,
@@ -102,6 +114,22 @@ export async function POST(request: Request) {
       timeElapsedMs: elapsed,
     })
     if (!r.ok) console.error("Slack status update failed:", r.error)
+
+    const dbState = actionToDbState[actionId]
+    if (dbState) {
+      const caseRecord = await prisma.case.findFirst({
+        where: { slackChannelId: channelId, slackThreadTs: messageTs },
+      })
+      if (caseRecord) {
+        const result = await transitionCase(caseRecord.id, dbState, {
+          source: "slack",
+          action: actionId,
+        })
+        if (!result.ok) {
+          console.warn("[interactions] DB state transition failed:", result.error)
+        }
+      }
+    }
   }
 
   const run = async () => {
@@ -135,6 +163,34 @@ export async function POST(request: Request) {
           "Handoff artifact – Open in Cursor"
         )
         if (!r3.ok) console.error("Slack handoff post failed:", r3.error)
+        break
+      }
+      case "create_github_issue": {
+        const caseId = action.value
+        if (!caseId) break
+        const c = await prisma.case.findUnique({
+          where: { id: caseId },
+          select: { title: true, body: true },
+        })
+        const defaultRepo = process.env.GITHUB_DEFAULT_REPO?.trim()
+        if (!defaultRepo || !c) {
+          await postReplyInThread(
+            channelId,
+            messageTs,
+            c
+              ? "Create GitHub issue: set `GITHUB_DEFAULT_REPO=owner/repo` in env and create an issue manually, then link it to this case."
+              : "Case not found."
+          )
+          break
+        }
+        const title = encodeURIComponent(c.title)
+        const body = encodeURIComponent((c.body ?? "").slice(0, 2000))
+        const newIssueUrl = `https://github.com/${defaultRepo}/issues/new?title=${title}&body=${body}`
+        await postReplyInThread(
+          channelId,
+          messageTs,
+          `Create a GitHub issue for this case: <${newIssueUrl}|Open new issue>. After you create it, mention the issue here (e.g. #123) to link it.`
+        )
         break
       }
       default: {

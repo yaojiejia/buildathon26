@@ -35,7 +35,9 @@ from typing import Any, Callable, Protocol
 # Agent identifiers
 AGENT_TRIAGE = "triage"
 AGENT_CODEBASE_SEARCH = "codebase_search"
+AGENT_DOC = "doc_analysis"
 AGENT_LOG = "log_analysis"
+AGENT_PATCH = "patch_generation"
 AGENT_PIPELINE = "pipeline"
 
 # Event types
@@ -71,7 +73,9 @@ class ConsoleEventEmitter:
     _COLORS = {
         AGENT_TRIAGE: "\033[36m",        # cyan
         AGENT_CODEBASE_SEARCH: "\033[33m",  # yellow
+        AGENT_DOC: "\033[34m",           # blue
         AGENT_LOG: "\033[32m",           # green
+        AGENT_PATCH: "\033[96m",         # bright cyan
         AGENT_PIPELINE: "\033[35m",      # magenta
     }
     _RESET = "\033[0m"
@@ -177,4 +181,3 @@ def set_default_emitter(emitter: EventEmitter) -> None:
     """Set the default event emitter globally."""
     global _default_emitter
     _default_emitter = emitter
-
