@@ -13,7 +13,7 @@ import {
   Moon,
 } from "lucide-react"
 
-export function Navbar() {
+export function Navbar({ hideInvestigate = false }: { hideInvestigate?: boolean } = {}) {
   const { state, startInvestigation, resetInvestigation } = useEngine()
   const { theme, toggleTheme } = useTheme()
 
@@ -49,7 +49,7 @@ export function Navbar() {
 
       {/* Controls */}
       <div className="flex items-center gap-2">
-        {state.status === "idle" && (
+        {state.status === "idle" && !hideInvestigate && (
           <button
             onClick={startInvestigation}
             className={cn(
