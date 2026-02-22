@@ -9,7 +9,7 @@ const jetbrains = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "BugPilot — AI Incident Investigation",
+  title: "Buzz — AI Incident Investigation",
   description:
     "AI-powered incident engineering that investigates GitHub bugs end-to-end with full observability.",
 }

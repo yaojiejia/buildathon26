@@ -21,7 +21,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark")
 
   useEffect(() => {
-    const stored = localStorage.getItem("bugpilot-theme") as Theme | null
+    const stored = localStorage.getItem("buzz-theme") as Theme | null
     if (stored) setTheme(stored)
   }, [])
 
@@ -32,7 +32,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } else {
       root.classList.remove("dark")
     }
-    localStorage.setItem("bugpilot-theme", theme)
+    localStorage.setItem("buzz-theme", theme)
   }, [theme])
 
   const toggleTheme = useCallback(() => {

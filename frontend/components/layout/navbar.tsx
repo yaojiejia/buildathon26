@@ -25,7 +25,7 @@ export function Navbar({ hideInvestigate = false }: { hideInvestigate?: boolean 
           <Bug className="h-4 w-4 text-cyan-400" />
         </div>
         <span className="text-sm font-bold tracking-tight text-foreground/90">
-          BugPilot
+          Buzz
         </span>
 
         {state.status !== "idle" && (
