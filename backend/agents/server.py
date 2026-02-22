@@ -41,6 +41,7 @@ class InvestigateRequest(BaseModel):
     repo_url: str = ""
     repo_name: str = ""
     model: str = "claude-sonnet-4-20250514"
+    enable_patch_agent: bool = False
 
 
 @app.post("/investigate")
@@ -61,6 +62,7 @@ async def investigate(req: InvestigateRequest):
                 "repo_url": req.repo_url,
                 "repo_name": req.repo_name,
                 "model": req.model,
+                "enable_patch_agent": req.enable_patch_agent,
                 "emitter": emitter,
             })
             report = result.get("report", {})
