@@ -19,6 +19,10 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "'JetBrains Mono'", "monospace"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -68,16 +72,10 @@ const config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "fadeOutLabel": {
-          "0%": { opacity: "1", transform: "translateX(0) translateY(-50%) scale(1)" },
-          "70%": { opacity: "1", transform: "translateX(0) translateY(-50%) scale(1)" },
-          "100%": { opacity: "0", transform: "translateX(0.5rem) translateY(-50%) scale(0.95)" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "fadeOut": "fadeOutLabel 2s ease-out forwards",
       },
     },
   },
