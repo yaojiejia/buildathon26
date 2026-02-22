@@ -16,11 +16,7 @@ import {
   Terminal,
   ScrollText,
   BookOpen,
-  Brain,
   Wrench,
-  Activity,
-  Rabbit,
-  MessageSquareReply,
   Shield,
   X,
 } from "lucide-react"
@@ -29,11 +25,7 @@ const agentIconMap: Record<string, React.ComponentType<{ className?: string }>> 
   Search,
   BookOpen,
   ScrollText,
-  Brain,
   Wrench,
-  Activity,
-  Rabbit,
-  MessageSquareReply,
   Shield,
 }
 

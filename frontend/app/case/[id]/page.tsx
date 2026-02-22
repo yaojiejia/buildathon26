@@ -13,7 +13,6 @@ import {
   Github,
   Clock,
   Zap,
-  Play,
   Loader2,
 } from "lucide-react"
 
@@ -37,10 +36,6 @@ function CaseHero({ caseData }: { caseData: CaseData }) {
       repoUrl: `https://github.com/${caseData.repo}`,
       repoName: caseData.repo,
     })
-  }
-
-  const handleDemoInvestigation = () => {
-    startInvestigation()
   }
 
   if (state.status !== "idle") {
@@ -116,18 +111,6 @@ function CaseHero({ caseData }: { caseData: CaseData }) {
                 >
                   <Zap className="h-4 w-4 text-cyan-400" />
                   Launch Investigation
-                </button>
-                <button
-                  onClick={handleDemoInvestigation}
-                  className={cn(
-                    "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
-                    "bg-white/[0.04] text-foreground/50 border border-white/[0.08]",
-                    "transition-all hover:bg-white/[0.08] hover:border-white/[0.12]",
-                    "active:scale-[0.98]"
-                  )}
-                >
-                  <Play className="h-4 w-4" />
-                  Demo Mode
                 </button>
               </div>
             </div>

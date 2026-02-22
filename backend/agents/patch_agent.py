@@ -73,11 +73,20 @@ Rules:
 """
 
 
-def _run(cmd: list[str], cwd: str) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], cwd: str, timeout: int = 120, env: dict | None = None) -> subprocess.CompletedProcess:
+    run_env = None
+    if env:
+        run_env = {**os.environ, **env}
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=run_env)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout="",
+            stderr=f"Command timed out after {timeout}s",
+        )
     except FileNotFoundError as e:
-        # Normalize missing executable into a non-zero CompletedProcess
         return subprocess.CompletedProcess(
             args=cmd,
             returncode=127,
@@ -589,10 +598,13 @@ def _create_draft_pr(repo_path: str, title: str, body: str, branch: str, em: Eve
     if has_gh.returncode != 0:
         return {"status": "skipped", "reason": "gh CLI not installed"}
 
+    token = os.environ.get("GITHUB_TOKEN", "")
+    gh_env = {"GH_TOKEN": token} if token else None
+
     base = _default_branch(repo_path)
     head_ref = f"{branch}"
-    cmd = ["gh", "pr", "create", "--draft", "--title", title, "--body", body, "--base", base, "--head", head_ref]
-    res = _run(cmd, cwd=repo_path)
+    cmd = ["gh", "pr", "create", "--title", title, "--body", body, "--base", base, "--head", head_ref]
+    res = _run(cmd, cwd=repo_path, env=gh_env)
     if res.returncode == 0:
         url = (res.stdout or "").strip().splitlines()[-1] if (res.stdout or "").strip() else ""
         em.emit(AGENT_PATCH, EVENT_PROGRESS, "draft_pr", f"Draft PR created: {url or '(created)'}")
@@ -615,7 +627,19 @@ def _default_branch(repo_path: str) -> str:
 
 def _push_branch(repo_path: str, branch: str, em: EventEmitter) -> dict:
     """Push branch to origin so PR can be opened."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token:
+        remote = _run(["git", "remote", "get-url", "origin"], cwd=repo_path)
+        url = (remote.stdout or "").strip()
+        if url.startswith("https://github.com/"):
+            authed_url = url.replace("https://github.com/", f"https://x-access-token:{token}@github.com/")
+            _run(["git", "remote", "set-url", "origin", authed_url], cwd=repo_path)
+
     push = _run(["git", "push", "-u", "origin", branch], cwd=repo_path)
+
+    if token and url.startswith("https://github.com/"):
+        _run(["git", "remote", "set-url", "origin", url], cwd=repo_path)
+
     if push.returncode == 0:
         em.emit(AGENT_PATCH, EVENT_PROGRESS, "push_branch", f"Pushed branch: {branch}")
         return {"status": "pushed"}

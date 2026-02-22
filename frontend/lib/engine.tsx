@@ -14,10 +14,11 @@ import {
   AgentState,
   AgentStatus,
   ALL_AGENT_IDS,
+  InvestigationReport,
   InvestigationState,
   TimelineEvent,
 } from "./types"
-import { agentMeta, allAgentEvents } from "./agent-data"
+import { agentMeta, allAgentEvents, demoReport } from "./agent-data"
 
 // ─── Initial state ───────────────────────────────────────────
 function makeInitialAgentState(id: AgentId): AgentState {
@@ -46,6 +47,7 @@ const initialState: InvestigationState = {
   timeline: [],
   selectedAgent: null,
   elapsedMs: 0,
+  report: null,
 }
 
 // ─── Actions ─────────────────────────────────────────────────
@@ -57,6 +59,7 @@ type Action =
   | { type: "AGENT_STATUS"; agentId: AgentId; status: AgentStatus }
   | { type: "TIMELINE_EVENT"; event: TimelineEvent }
   | { type: "INVESTIGATION_COMPLETE" }
+  | { type: "SET_REPORT"; report: InvestigationReport }
   | { type: "TICK"; elapsedMs: number }
 
 // ─── Reducer ─────────────────────────────────────────────────
@@ -115,6 +118,9 @@ function reducer(state: InvestigationState, action: Action): InvestigationState 
     case "INVESTIGATION_COMPLETE":
       return { ...state, status: "complete" }
 
+    case "SET_REPORT":
+      return { ...state, report: action.report }
+
     case "TICK":
       return { ...state, elapsedMs: action.elapsedMs }
 
@@ -155,6 +161,9 @@ function mapBackendEvent(be: BackendEvent, elapsedMs: number): AgentEvent | null
   if (be.agent === "pipeline") {
     if (be.step === "triage") agentId = "triage"
     else if (be.step === "codebase_search") agentId = "codebase_search"
+    else if (be.step === "doc_analysis") agentId = "doc_analysis"
+    else if (be.step === "log_analysis") agentId = "log_analysis"
+    else if (be.step === "patch_generation") agentId = "patch_generation"
     else if (be.step === "report") agentId = "codebase_search"
     else return null
   } else if (isValidAgentId(be.agent)) {
@@ -260,11 +269,10 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
         abortRef.current = controller
         const activeAgents = new Set<AgentId>()
 
-        // Both backend agents start in parallel — show them as running immediately
-        dispatch({ type: "AGENT_STATUS", agentId: "triage", status: "running" })
-        dispatch({ type: "AGENT_STATUS", agentId: "codebase_search", status: "running" })
-        activeAgents.add("triage")
-        activeAgents.add("codebase_search")
+        for (const id of ALL_AGENT_IDS) {
+          dispatch({ type: "AGENT_STATUS", agentId: id, status: "running" })
+          activeAgents.add(id)
+        }
 
         async function consumeSSE() {
           try {
@@ -276,6 +284,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
                 issue_body: params!.issueBody,
                 repo_url: params!.repoUrl,
                 repo_name: params!.repoName,
+                enable_patch_agent: true,
               }),
               signal: controller.signal,
             })
@@ -337,6 +346,12 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
                       },
                     })
                   })
+                  if (be.data?.report) {
+                    dispatch({
+                      type: "SET_REPORT",
+                      report: be.data.report as InvestigationReport,
+                    })
+                  }
                   dispatch({ type: "INVESTIGATION_COMPLETE" })
                   if (tickInterval.current) {
                     clearInterval(tickInterval.current)
@@ -427,18 +442,21 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
       let completedAgents = 0
       const totalAgents = ALL_AGENT_IDS.length
 
+      function completeDemo() {
+        dispatch({ type: "SET_REPORT", report: demoReport })
+        dispatch({ type: "INVESTIGATION_COMPLETE" })
+        if (tickInterval.current) {
+          clearInterval(tickInterval.current)
+          tickInterval.current = null
+        }
+      }
+
       ALL_AGENT_IDS.forEach((agentId) => {
         const events = allAgentEvents[agentId]
         if (events.length === 0) {
           dispatch({ type: "AGENT_STATUS", agentId, status: "done" })
           completedAgents++
-          if (completedAgents >= totalAgents) {
-            dispatch({ type: "INVESTIGATION_COMPLETE" })
-            if (tickInterval.current) {
-              clearInterval(tickInterval.current)
-              tickInterval.current = null
-            }
-          }
+          if (completedAgents >= totalAgents) completeDemo()
           return
         }
 
@@ -468,13 +486,7 @@ export function EngineProvider({ children }: { children: React.ReactNode }) {
             if (event.type === "complete") {
               dispatch({ type: "AGENT_STATUS", agentId, status: "done" })
               completedAgents++
-              if (completedAgents >= totalAgents) {
-                dispatch({ type: "INVESTIGATION_COMPLETE" })
-                if (tickInterval.current) {
-                  clearInterval(tickInterval.current)
-                  tickInterval.current = null
-                }
-              }
+              if (completedAgents >= totalAgents) completeDemo()
             }
           }, cumulativeDelay)
 
