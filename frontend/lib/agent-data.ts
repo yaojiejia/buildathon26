@@ -200,7 +200,7 @@ export const patchGenerationEvents: AgentEvent[] = [
   },
   {
     id: id(), agentId: "patch_generation", type: "action", delay: 1800,
-    message: "Creating branch: bugpilot/fix-refund-price-calculation",
+    message: "Creating branch: buzz/fix-refund-price-calculation",
   },
   {
     id: id(), agentId: "patch_generation", type: "success", delay: 1600,
