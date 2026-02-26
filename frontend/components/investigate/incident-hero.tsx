@@ -13,6 +13,7 @@ import {
   Play,
 } from "lucide-react"
 import { GlowingEffect } from "@/components/ui/glowing-effect"
+import { InteractiveHoverButton } from "@/components/ui/interactive-hover-button"
 
 export function IncidentHero() {
   const { startInvestigation } = useEngine()
@@ -43,7 +44,7 @@ export function IncidentHero() {
             inactiveZone={0.01}
             borderWidth={2}
           />
-          <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
+          <div className="group/summary relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-2xl">
           {/* Glow accent */}
           <div className="absolute -top-24 left-1/2 h-48 w-96 -translate-x-1/2 rounded-full bg-cyan-500/8 blur-3xl" />
 
@@ -60,7 +61,7 @@ export function IncidentHero() {
             </div>
 
             {/* Title */}
-            <h1 className="text-2xl font-bold tracking-tight text-foreground/95">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground/95 transition-colors duration-200 group-hover/summary:text-foreground">
               {bugReport.title}
             </h1>
 
@@ -81,7 +82,7 @@ export function IncidentHero() {
             </div>
 
             {/* Summary */}
-            <p className="mt-5 text-sm leading-relaxed text-foreground/60">
+            <p className="mt-5 text-sm leading-relaxed text-foreground/60 transition-colors duration-200 group-hover/summary:text-foreground/80">
               {bugReport.summary}
             </p>
 
@@ -102,12 +103,12 @@ export function IncidentHero() {
             <div className="my-6 h-px bg-white/[0.06]" />
 
             {/* AI Summary */}
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <div className="group/ai-summary rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 transition-shadow duration-200 hover:shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+              <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground transition-colors duration-200 group-hover/ai-summary:text-foreground/70">
                 <Zap className="h-3.5 w-3.5 text-cyan-400" />
                 AI SUMMARY
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-foreground/70">
+              <p className="mt-2 text-sm leading-relaxed text-foreground/70 transition-colors duration-200 group-hover/ai-summary:text-foreground/90">
                 The process_refund function recalculates refund amounts using current
                 product prices instead of the price_at_purchase stored in order_items.
                 If prices changed since the order, customers get the wrong refund amount.
@@ -117,30 +118,22 @@ export function IncidentHero() {
 
             {/* CTA */}
             <div className="mt-6 flex gap-3">
-              <button
+              <InteractiveHoverButton
                 onClick={handleRealInvestigation}
-                className={cn(
-                  "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
-                  "bg-cyan-500/10 text-cyan-300 border border-cyan-500/20",
-                  "transition-all hover:bg-cyan-500/20 hover:border-cyan-500/30",
-                  "active:scale-[0.98]"
-                )}
+                text="Launch Investigation"
+                variant="primary"
+                className="flex-1 px-6 py-3"
               >
                 <Zap className="h-4 w-4 text-cyan-400" />
-                Launch Investigation
-              </button>
-              <button
+              </InteractiveHoverButton>
+              <InteractiveHoverButton
                 onClick={handleDemoInvestigation}
-                className={cn(
-                  "flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold",
-                  "bg-white/[0.04] text-foreground/50 border border-white/[0.08]",
-                  "transition-all hover:bg-white/[0.08] hover:border-white/[0.12]",
-                  "active:scale-[0.98]"
-                )}
+                text="Demo Mode"
+                variant="secondary"
+                className="flex-1 px-6 py-3"
               >
                 <Play className="h-4 w-4" />
-                Demo Mode
-              </button>
+              </InteractiveHoverButton>
             </div>
           </div>
           </div>
